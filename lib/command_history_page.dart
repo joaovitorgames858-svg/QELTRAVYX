@@ -1,0 +1,173 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+/// Selecionar ou editar um comando nunca o executa automaticamente.
+class QeltravyxHistorySelection {
+  const QeltravyxHistorySelection(this.command, {this.openEditor = false});
+
+  final String command;
+  final bool openEditor;
+}
+
+class QeltravyxHistoryPage extends StatefulWidget {
+  const QeltravyxHistoryPage({
+    super.key,
+    required this.commands,
+    required this.onClear,
+  });
+
+  final List<String> commands;
+  final Future<bool> Function() onClear;
+
+  @override
+  State<QeltravyxHistoryPage> createState() => _QeltravyxHistoryPageState();
+}
+
+class _QeltravyxHistoryPageState extends State<QeltravyxHistoryPage> {
+  final TextEditingController _search = TextEditingController();
+  bool _clearing = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _copy(String command) async {
+    await Clipboard.setData(ClipboardData(text: command));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Comando copiado.')),
+    );
+  }
+
+  Future<void> _clear() async {
+    if (_clearing || widget.commands.isEmpty) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Apagar histórico?'),
+        content: const Text(
+          'Esta ação remove os comandos salvos do histórico do QELTRAVYX. '
+          'Ela não apaga os projetos nem os arquivos Python.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Apagar histórico'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    setState(() => _clearing = true);
+    try {
+      final cleared = await widget.onClear();
+      if (!mounted) return;
+      if (cleared) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Histórico apagado.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final matches = widget.commands.reversed
+        .where((command) => command.toLowerCase().contains(query))
+        .toList(growable: false);
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B1424),
+      appBar: AppBar(
+        title: const Text('Histórico de comandos'),
+        actions: [
+          IconButton(
+            tooltip: 'Apagar histórico',
+            onPressed: _clearing || widget.commands.isEmpty ? null : _clear,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: TextField(
+                controller: _search,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Buscar no histórico...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${matches.length} comando(s). Toque para recuperar; lápis para editar.',
+                  style: const TextStyle(color: Color(0xFF9AABC2), fontSize: 12),
+                ),
+              ),
+            ),
+            Expanded(
+              child: matches.isEmpty
+                  ? const Center(child: Text('Nenhum comando encontrado.'))
+                  : ListView.builder(
+                      itemCount: matches.length,
+                      itemBuilder: (context, index) {
+                        final command = matches[index];
+                        return ListTile(
+                          dense: true,
+                          title: Text(
+                            command,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontFamily: 'monospace'),
+                          ),
+                          onTap: () => Navigator.pop(
+                            context,
+                            QeltravyxHistorySelection(command),
+                          ),
+                          trailing: Wrap(
+                            children: [
+                              IconButton(
+                                tooltip: 'Copiar comando',
+                                onPressed: () => _copy(command),
+                                icon: const Icon(Icons.copy_outlined),
+                              ),
+                              IconButton(
+                                tooltip: 'Editar antes de executar',
+                                onPressed: () => Navigator.pop(
+                                  context,
+                                  QeltravyxHistorySelection(
+                                    command,
+                                    openEditor: true,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,28 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../lib/agent_ia_page.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('AGENT informa que IA nao executa tarefas nesta etapa', (
+    tester,
+  ) async {
+    const workspace = MethodChannel('qeltravyx/workspace');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(workspace, (call) async {
+      if (call.method == 'listProjects') return <String>['teste_python'];
+      throw PlatformException(code: 'UNEXPECTED');
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(workspace, null));
+
+    await tester.pumpWidget(const MaterialApp(home: QeltravyxAgentPage()));
+    await tester.pumpAndSettle();
+    expect(find.text('QELTRAVYX AGENT IA'), findsOneWidget);
+    expect(find.text('Selecione um projeto'), findsOneWidget);
+    expect(find.text('Base do agente • Alpha 0.9.7'), findsOneWidget);
+  });
+}

@@ -1,0 +1,17 @@
+# QELTRAVYX Alpha 0.5.1 - GNU Bash interactive setup.
+# Created once in $HOME/.qeltravyx/bashrc; you may edit this file.
+case $- in *i*) ;; *) return ;; esac
+
+PS1='qeltravyx:\w\$ '
+HISTFILE="$HOME/.qeltravyx_bash_history"
+HISTSIZE=1000
+HISTFILESIZE=2000
+export HISTFILE HISTSIZE HISTFILESIZE
+shopt -s histappend
+# Start from the dedicated history file and append after each command.
+# Do not import unrelated ~/.bash_history by accident.
+history -c
+if [[ -f "$HISTFILE" ]]; then
+  history -r "$HISTFILE"
+fi
+PROMPT_COMMAND='history -a'
