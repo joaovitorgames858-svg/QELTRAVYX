@@ -80,3 +80,8 @@ google-services.json
 *.backup
 *.bak
 *.bak-*
+
+# Backups e marcadores locais
+*.backup*
+*.bak_*
+.qeltravyx_*
