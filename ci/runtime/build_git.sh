@@ -41,7 +41,17 @@ if s.count(make_shell) != 1 or s.count(generator_shell) < 3:
 s = s.replace(make_shell, "SHELL = /bin/sh", 1)
 s = s.replace(generator_shell, "$(QUIET_GEN)/bin/sh")
 p.write_text(s)
-print("Host Linux: geradores e make usam /bin/sh; Git Android preserva /system/bin/sh")
+shared = p.with_name("shared.mak")
+body = shared.read_text()
+# Git 2.56: version_gen is defined in shared.mak, not in Makefile.
+# GIT-VERSION-FILE is -included by Makefile; if the generator silently
+# fails because /system/bin/sh does not exist on Linux, make reports
+# misleadingly that version-def.h has no rule for GIT-VERSION-FILE.
+host_generator = '$(SHELL_PATH) "$(1)/GIT-VERSION-GEN"'
+if body.count(host_generator) != 1:
+    raise SystemExit("Git shared.mak mudou: abortando patch")
+shared.write_text(body.replace(host_generator, '/bin/sh "$(1)/GIT-VERSION-GEN"', 1))
+print("Host Linux: make, geradores e GIT-VERSION-GEN usam /bin/sh; Android SHELL_PATH preservado")
 PY_HOST_SHELL
 q_toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
 # Build only the C executable and its in-process builtins. No curl, Perl, Python,
