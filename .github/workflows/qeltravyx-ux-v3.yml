@@ -52,6 +52,9 @@ jobs:
             test/terminal_selection_test.dart \
             test/terminal_prompt_test.dart
 
+      - name: Corrigir alias Android do pip empacotado
+        run: python3 ci/patch_pip_android_alias.py
+
       - name: Preparar APK sem assinatura
         run: |
           python3 - <<'PY'
