@@ -88,6 +88,7 @@ internal object RuntimeNpm {
             }
             check(File(tree, "bin/npm-cli.js").isFile && File(tree, "package.json").isFile &&
                 File(tree, "node_modules/semver/package.json").isFile) { "Árvore npm incompleta" }
+            File(tree, ".qel-global-npmrc").writeText("")
             File(tree, ".qeltravyx_sha256").writeText(expected)
             check(!target.exists() && tree.renameTo(target)) { "Ativação npm falhou" }
             return null

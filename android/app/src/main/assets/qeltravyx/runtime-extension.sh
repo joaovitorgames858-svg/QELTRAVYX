@@ -42,7 +42,7 @@ npm() (
       # Resolve the local file; reject CLI options, URLs and directories.
       q_npm_tarball=$(cd -- "$(dirname -- "$1")" && printf '%s/%s' "$PWD" "$(basename -- "$1")") || return 64
       node "$q_npm_cli" install "$q_npm_tarball" --offline --ignore-scripts --no-audit --no-fund \
-        --update-notifier=false --userconfig=/dev/null --globalconfig=/dev/null --global=false
+        --update-notifier=false --userconfig=/dev/null --globalconfig="${q_npm_cli%/bin/npm-cli.js}/.qel-global-npmrc" --global=false --prefix="$PWD"
       return $? ;;
     *) printf '%s\n' 'npm: disponíveis --version, ls e install arquivo.tgz offline; scripts/rede exigem adaptador de consentimento.' >&2
        return 64 ;;

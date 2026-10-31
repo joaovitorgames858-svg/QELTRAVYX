@@ -8,7 +8,6 @@ from __future__ import annotations
 import email
 import contextlib
 import fcntl
-import stat
 import hashlib
 import io
 import json
@@ -47,7 +46,7 @@ class QpkgError(Exception):
     pass
 
 def norm(name):
-    if not NAME_RE.fullmatch(name):
+    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
         raise QpkgError('Nome de pacote inválido.')
     return canonicalize_name(name)
 
@@ -112,10 +111,18 @@ def registry():
     return content
 
 def save(data):
-    with tempfile.NamedTemporaryFile('w', encoding='utf8', dir=STATE, delete=False) as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        tmp = Path(f.name)
-    os.replace(tmp, INDEX)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile('w', encoding='utf8', dir=STATE, delete=False) as f:
+            tmp = Path(f.name)
+            json.dump(data, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, INDEX)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
 
 def validate_url(url):
     parsed = urllib.parse.urlparse(url)
@@ -402,29 +409,34 @@ def remove_unlocked(name):
     if changed:
         raise QpkgError('Arquivos alterados; remoção cancelada: '+ ', '.join(changed[:5]))
     journal = STATE / 'pending.json'
-    with tempfile.TemporaryDirectory(prefix='remove-', dir=STATE) as tmp:
-        saved = []
-        journal.write_text(json.dumps({'operation': 'remove', 'package': key, 'files': files}))
-        try:
-            for fname in files:
-                source = checked_target(fname)
-                if not source.exists():
-                    continue
-                backup = Path(tmp) / fname
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                os.link(source, backup)
-                saved.append((source, backup))
-                source.unlink()
-            updated = dict(reg)
-            del updated[key]
-            save(updated)
-        except BaseException:
-            for source, backup in reversed(saved):
-                if not source.exists():
-                    os.link(backup, source)
-            journal.unlink()
-            raise
+    # Persistent backup survives an interrupted/failed rollback; never discard the
+    # only copy of pre-existing user files on an error path.
+    staging = Path(tempfile.mkdtemp(prefix='remove-', dir=STATE))
+    saved = []
+    journal.write_text(json.dumps({'operation': 'remove', 'package': key, 'files': files, 'backup': staging.name}))
+    try:
+        for fname in files:
+            source = checked_target(fname)
+            if not source.exists():
+                continue
+            backup = staging / fname
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            os.link(source, backup)
+            saved.append((source, backup))
+            source.unlink()
+        updated = dict(reg)
+        del updated[key]
+        save(updated)
+    except BaseException:
+        # If any restoration fails, keep journal + backup for manual recovery.
+        for source, backup in reversed(saved):
+            if not source.exists():
+                os.link(backup, source)
+        shutil.rmtree(staging)
         journal.unlink()
+        raise
+    shutil.rmtree(staging)
+    journal.unlink()
     print('Removido:', key)
 
 
@@ -466,6 +478,9 @@ def main(argv):
 if __name__ == '__main__':
     try:
         main(sys.argv[1:])
+    except KeyboardInterrupt:
+        print('QPKG cancelado; verifique pending.json se houver interrupção abrupta.', file=sys.stderr)
+        sys.exit(130)
     except (QpkgError, ValueError, OSError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
         print('QPKG ERRO:',exc,file=sys.stderr)
         sys.exit(1)

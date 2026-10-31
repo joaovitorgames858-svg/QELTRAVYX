@@ -133,3 +133,54 @@ Resultados adicionais e commits serão acrescentados conforme executados.
   runtime ausente, bloqueio de código arbitrário, permissão revogada e cancelamento.
   A resolução Node de produção só aceita o executável do APK; o teste host injeta
   explicitamente `/usr/bin/node`. Isso não habilita fallback Termux/glibc no aplicativo.
+
+## Fechamento desta sessão (execução local)
+
+| Função | Entregue nesta branch | Aceite que falta |
+| --- | --- | --- |
+| Terminal/UX V3 | código preservado; 23 regressões específicas e suíte completa de **62 testes Flutter aprovadas** | regressão visual/tátil no APK candidato |
+| Python/pip | ZIP/hash/patch e versão preservados; integridade/patch testados em cópia | repetir ssl/sqlite/json e wheel do usuário no candidato |
+| Node 22.23.4 | fontes SHA conferidas, build NDK manual, validador ELF/dependências e smoke I/O | compilação real Linux x86_64 e execução ARM64 Bionic no app |
+| npm 10.9.9 | árvore completa reproduzível, instalador Kotlin, CLI restrita offline, smoke real **passou no host** | instalar/importar fixture no APK; rede e lifecycle com consentimento ainda não implementados |
+| Git 2.56.0 | fonte SHA conferida, receita NDK local-only, licenças/fonte, smoke com asserts | build e init/add/commit/status/log no Android; clone HTTPS indisponível |
+| QPKG | catálogo local, instalação offline/hash, verify, locks, rollback/backup; testes passaram | Android; upgrade seguro e recuperação automática após SIGKILL pendentes |
+| CORE | exemplo JS no canal existente, plano/multiarquivo/backups/testes/diagnóstico/correção/log/cancelamento; Python e JS passaram no host | ciclo no APK; execução arbitrária sem isolamento continua bloqueada; LLM não validada |
+| CI/APK | YAML parseado, workflows separados e um candidato unsigned configurado | executar workflows após push autorizado; nenhum APK gerado/instalado nesta sessão |
+
+Resultados finais:
+
+- **19 testes Python/host passaram**, incluindo o smoke da CLI npm 10.9.9 obtida da fonte
+  pinada. A CI de host sem essa fonte registra esse teste como skip; exige preparar fonte.
+- npm: `10.9.9`, `added 1 package`, `QELTRAVYX NPM OK ... lifecycle blocked`, exit 0.
+- **62 testes Flutter passaram**, comando `flutter test --no-pub`.
+- Kotlin: RuntimeBridge, RuntimeNpm e RuntimeQpkg compilaram no harness JVM;
+  testes de npm e provisionamento QPKG/backup passaram. Não é build Android completo.
+- `bash -n` passou nos scripts novos; `git diff --check` passou.
+- PyYAML não existe no host (checagem inicial falhou); YAML dos dois workflows foi
+  parseado com `package:yaml` do SDK Flutter: jobs host / node, git, apk-candidate.
+- Git tarball: SHA fixo conferido, 5082 membros. Três links conhecidos de RelNotes/GUI
+  são omitidos por nome **e alvo exatos**, sem permitir links na extração.
+- Git desativa fsmonitor/sync_file_range e usa `/dev/urandom` para não herdar APIs glibc
+  do host x86_64; precisa ainda confirmar toda a compilação NDK API 24.
+- Node: patch Android upstream incluído na fonte é defasado em relação ao header V8.
+  Patch mínimo pinado desativa trap handler em Android, conforme intenção upstream;
+  `patch --dry-run --fuzz=0` passou. Compilação do patch ainda não executada.
+- Validador ELF rejeita dependências desconhecidas, RPATH/RUNPATH e libc++ ausente.
+- `git diff ee17042` para pubspec, pubspec.lock, pip ZIP/hash/patch e workflow UX V3: **sem alterações**.
+- Disco ao final: cerca de **11 GiB livres**; nenhuma limpeza de builds/backups do usuário.
+  Fontes e payloads de desenvolvimento estão apenas em `.build/` ignorado.
+
+Commits: `b0e557b` inventário/regressões, `16cdf97` infraestrutura/native/QPKG,
+`af62661` ciclo CORE JS; correções finais e guia de validação em commit subsequente.
+
+Próxima ação externa necessária: revisar a branch e, somente mediante pedido explícito,
+enviar/rodar CI Linux x86_64. Depois validar o candidato em Android autorizado seguindo
+[guia de validação e assinatura local](RUNTIME_TOTAL_VALIDATION.md).
+Não há autorização implícita para push, instalação ou limpeza do app. Não declarar missão
+completa antes desses testes. Smokes do painel têm timeouts; cancelamento interativo desses
+probes ainda não foi acrescentado (o cancelamento do CORE existente foi preservado/testado).
+
+Verificação final adicional: o teste integrado usa também `runtime-extension.sh` real,
+com diretório nativo de fixture explicitamente apontado para Node do host. `npm install
+./demo.tgz` passou; nome remoto, `npm run` e `npm exec` retornaram 64, como previsto.
+Kotlin foi recompilado após ajustar RuntimeBridge (limitação Git e erro npm): exit 0.

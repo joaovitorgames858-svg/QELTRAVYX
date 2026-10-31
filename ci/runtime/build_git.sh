@@ -18,7 +18,11 @@ from pathlib import Path
 sys.path.insert(0,'ci/runtime')
 from prepare_node import MANIFEST, fetch, extract
 spec=MANIFEST['git']
-extract(fetch(Path(sys.argv[1]),spec),Path(sys.argv[1]),'git-'+spec['version'])
+root='git-'+spec['version']
+# Exact source-only documentation/GUI aliases; never materialize archive symlinks.
+omitted={root+'/RelNotes': 'Documentation/RelNotes/2.56.0.adoc',
+         root+'/subprojects/git-gui': '../git-gui', root+'/subprojects/gitk': '../gitk-git'}
+extract(fetch(Path(sys.argv[1]),spec),Path(sys.argv[1]),root,omitted_links=omitted)
 PY
 q_version=$(python3 -c 'import json; print(json.load(open("ci/runtime/sources.json"))["git"]["version"])')
 q_toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
@@ -32,13 +36,14 @@ make -C "$q_work/git-$q_version" -j2 git \
   NO_CURL=YesPlease NO_EXPAT=YesPlease NO_OPENSSL=YesPlease \
   NO_GETTEXT=YesPlease NO_ICONV=YesPlease NO_PERL=YesPlease NO_PYTHON=YesPlease \
   NO_TCLTK=YesPlease NO_INSTALL_HARDLINKS=YesPlease \
+  CSPRNG_METHOD= HAVE_SYNC_FILE_RANGE= FSMONITOR_DAEMON_BACKEND= FSMONITOR_OS_SETTINGS= \
   ac_cv_fread_reads_directories=YesPlease ac_cv_snprintf_returns_bogus=No \
   prefix=/nonexistent/qeltravyx-git SHELL_PATH=/system/bin/sh
 cp "$q_work/git-$q_version/git" "$q_output/jniLibs/arm64-v8a/libqeltravyx_git.so"
 cp "$q_work/git-$q_version/COPYING" "$q_output/licenses/git/"
 # Distribute corresponding exact source alongside the GPL executable candidate.
 cp "$q_work/git-$q_version.tar.xz" "$q_output/licenses/git/"
-cp ci/runtime/sources.json "$q_output/licenses/git/"
+cp ci/runtime/sources.json ci/runtime/build_git.sh ci/runtime/prepare_node.py ci/runtime/verify_elf.py "$q_output/licenses/git/"
 python3 ci/runtime/verify_elf.py "$q_output/jniLibs/arm64-v8a/libqeltravyx_git.so"
 python3 - "$q_output" <<'PY'
 import hashlib,json,sys

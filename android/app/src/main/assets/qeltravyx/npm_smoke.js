@@ -5,10 +5,15 @@ const path = require('path');
 const assert = require('assert');
 const {spawnSync} = require('child_process');
 const cli = process.argv[2];
+const userConfig = path.join(process.cwd(), 'user.npmrc');
+const globalConfig = path.join(process.cwd(), 'global.npmrc');
+fs.writeFileSync(userConfig, '');
+fs.writeFileSync(globalConfig, '');
 function npm(args) {
   const result = spawnSync(process.execPath, [cli, ...args,
     '--offline', '--ignore-scripts', '--no-audit', '--no-fund',
-    '--update-notifier=false', '--userconfig=/dev/null', '--globalconfig=/dev/null'], {
+    '--update-notifier=false', '--global=false', '--prefix=' + process.cwd(),
+    '--userconfig=' + userConfig, '--globalconfig=' + globalConfig], {
     cwd: process.cwd(), encoding: 'utf8', timeout: 25000, maxBuffer: 16384,
     env: {...process.env, HOME: process.cwd(), npm_config_cache: path.join(process.cwd(), 'cache')}
   });

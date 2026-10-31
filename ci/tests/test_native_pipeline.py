@@ -51,11 +51,38 @@ class NativeTests(unittest.TestCase):
             self.assertIn('QELTRAVYX NODE OK', result.stdout)
             self.assertFalse((Path(tmp)/'node-renamed.txt').exists())
 
+    @unittest.skipUnless((ROOT/'.build/runtime-sources/node-v22.23.4/deps/npm/bin/npm-cli.js').is_file() and shutil.which('node'),
+                         'Pinned npm source not prepared; run prepare_node.py first')
+    def test_pinned_npm_installs_fixture_offline_without_lifecycle(self):
+        assets=ROOT/'android/app/src/main/assets/qeltravyx'
+        cli=ROOT/'.build/runtime-sources/node-v22.23.4/deps/npm/bin/npm-cli.js'
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copy2(assets/'qel-js-demo-1.0.0.tgz', Path(tmp)/'qel-js-demo-1.0.0.tgz')
+            result=subprocess.run(['node',str(assets/'npm_smoke.js'),str(cli)],cwd=tmp,capture_output=True,text=True,timeout=60)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('QELTRAVYX NPM OK',result.stdout)
+            # Exercise the actual Bash entry point with an explicitly supplied host fixture.
+            home=Path(tmp)/'home'; runtimes=home/'.qeltravyx/runtimes'; runtimes.mkdir(parents=True)
+            (runtimes/'npm').symlink_to(cli.parent.parent)
+            native=Path(tmp)/'native'; native.mkdir()
+            (native/'libqeltravyx_node.so').symlink_to(shutil.which('node'))
+            project=home/'workspace/demo'; project.mkdir(parents=True)
+            shutil.copy2(assets/'qel-js-demo-1.0.0.tgz',project/'demo.tgz')
+            env={'HOME':str(home),'PATH':'/usr/bin:/bin','QELTRAVYX_TOOLBOX':str(native/'toolbox')}
+            result=subprocess.run(['bash','-c','source "$1"; npm install ./demo.tgz',
+                'smoke',str(assets/'runtime-extension.sh')],cwd=project,env=env,capture_output=True,text=True,timeout=60)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertTrue((project/'node_modules/qel-js-demo/index.js').is_file())
+            for command in ['npm install remote-package', 'npm run postinstall', 'npm exec echo']:
+                blocked=subprocess.run(['bash','-c','source "$1"; '+command,'smoke',str(assets/'runtime-extension.sh')],
+                                       cwd=project,env=env,capture_output=True,text=True,timeout=5)
+                self.assertEqual(blocked.returncode,64,blocked.stdout+blocked.stderr)
+
     def test_reproducible_complete_npm_package(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=root/'source'; npm=source/'deps/npm'; npm.mkdir(parents=True)
             (source/'LICENSE').write_text('license')
-            (npm/'package.json').write_text('{"version":"1.2.3"}')
+            (npm/'package.json').write_text('{"version":"10.9.9"}')
             nested=npm/'node_modules/example'; nested.mkdir(parents=True)
             (nested/'index.js').write_text('module.exports=42;')
             prepare.package_npm(source,root/'one'); prepare.package_npm(source,root/'two')

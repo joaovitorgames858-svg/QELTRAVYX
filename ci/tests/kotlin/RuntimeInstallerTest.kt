@@ -48,6 +48,19 @@ fun main() {
         val fresh = File(temp, "fresh").apply { mkdir() }
         Files.createSymbolicLink(File(fresh, ".qeltravyx").toPath(), File(files, ".qeltravyx").toPath())
         check(RuntimeNpm.prepare(Context(fresh, assets))!!.contains("Link interno"))
+        val realAssets = File("android/app/src/main/assets/qeltravyx")
+        val qassets = File(assets, "qeltravyx").apply { mkdirs() }
+        for (name in listOf("qpkg.py", "qpkg-vendor.zip", "qpkg-vendor.sha256")) {
+            File(realAssets, name).copyTo(File(qassets, name), overwrite = true)
+        }
+        RuntimeQpkg.prepare(context)
+        check(File(files, ".qeltravyx/vendor/packaging/__init__.py").isFile)
+        RuntimeQpkg.prepare(context)
+        File(files, ".qeltravyx/qpkg.py").writeText("# user customized")
+        RuntimeQpkg.prepare(context)
+        val backups = File(files, ".qeltravyx").listFiles()!!.filter { it.name.startsWith("qpkg.py.backup-") }
+        check(backups.size == 1 && backups.first().readText() == "# user customized")
+        println("RuntimeQpkg JVM: vendor install/idempotence/script backup PASS; not Android evidence")
         println("RuntimeNpm JVM: absence/hash/zip-slip/idempotence/upgrade preservation/root alias/internal link PASS; not Android evidence")
     } finally { temp.deleteRecursively() }
 }

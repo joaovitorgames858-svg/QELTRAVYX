@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import tarfile
 import tempfile
+import time
 import urllib.request
 import zipfile
 
@@ -22,6 +23,11 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError('Pinned source redirects are not allowed')
+
+
 def fetch(destination, spec=None):
     spec = spec or MANIFEST['node']
     destination.mkdir(parents=True, exist_ok=True)
@@ -30,13 +36,15 @@ def fetch(destination, spec=None):
         return archive
     fd, name = tempfile.mkstemp(prefix='download-', dir=destination)
     try:
-        with os.fdopen(fd, 'wb') as output, urllib.request.urlopen(spec['url'], timeout=30) as response:
+        started = time.monotonic()
+        opener = urllib.request.build_opener(NoRedirect())
+        with os.fdopen(fd, 'wb') as output, opener.open(spec['url'], timeout=30) as response:
             if response.url != spec['url']:
                 raise ValueError('Unexpected source origin')
             total = 0
             while chunk := response.read(1024 * 1024):
                 total += len(chunk)
-                if total > MAX_SOURCE:
+                if total > MAX_SOURCE or time.monotonic() - started > 300:
                     raise ValueError('Source exceeds size limit')
                 output.write(chunk)
         if digest(Path(name)) != spec['sha256']:
@@ -47,7 +55,7 @@ def fetch(destination, spec=None):
     return archive
 
 
-def extract(archive, destination, root=None):
+def extract(archive, destination, root=None, omitted_links=None):
     """Private fresh staging only; reject links/special paths before any writes."""
     root = root or 'node-v' + MANIFEST['node']['version']
     target = destination / root
@@ -57,9 +65,14 @@ def extract(archive, destination, root=None):
         staging = Path(tmp)
         with tarfile.open(archive) as tar:
             members = tar.getmembers()
+            omitted_links = omitted_links or {}
+            selected = []
             total = 0
             seen = set()
             for item in members:
+                if item.name in omitted_links and item.issym() and item.linkname == omitted_links[item.name]:
+                    continue
+                selected.append(item)
                 parts = item.name.rstrip('/').split('/')
                 if (parts[0] != root or any(p in ('', '.', '..') for p in parts)
                         or '\\' in item.name or not (item.isdir() or item.isfile())
@@ -69,7 +82,7 @@ def extract(archive, destination, root=None):
                 total += item.size
                 if total > MAX_TREE or len(seen) > 100000:
                     raise ValueError('Source extraction limit')
-            tar.extractall(staging, members=members, filter='data')
+            tar.extractall(staging, members=selected, filter='data')
         os.replace(staging / root, target)
     return target
 
@@ -77,6 +90,8 @@ def extract(archive, destination, root=None):
 def package_npm(source, destination):
     npm = source / 'deps/npm'
     version = json.loads((npm / 'package.json').read_text())['version']
+    if version != MANIFEST['node']['npm_version']:
+        raise ValueError('npm version differs from source pin')
     destination.mkdir(parents=True, exist_ok=True)
     target = destination / 'npm-runtime.zip'
     count, total = 0, 0

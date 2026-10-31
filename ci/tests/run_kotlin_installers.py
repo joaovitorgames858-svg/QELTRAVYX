@@ -19,7 +19,7 @@ compiler=[jar('org.jetbrains.kotlin','kotlin-compiler-embeddable','2.2.20'),
           jar('org.jetbrains','annotations','13.0')]
 args.output.mkdir(parents=True,exist_ok=True)
 source=Path('android/app/src/main/kotlin/dev/qeltravyx/qeltravyx')
-files=[source/'RuntimeNpm.kt',source/'RuntimeQpkg.kt',*Path('ci/tests/kotlin').glob('*.kt')]
+files=[source/'RuntimeBridge.kt',source/'RuntimeNpm.kt',source/'RuntimeQpkg.kt',*Path('ci/tests/kotlin').glob('*.kt')]
 subprocess.run(['java','-cp',':'.join(compiler),'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
     '-no-stdlib','-no-reflect','-classpath',':'.join(compiler[1:]),'-d',str(args.output),*[str(p) for p in files]],check=True)
 subprocess.run(['java','-cp',str(args.output)+':'+compiler[1], 'dev.qeltravyx.qeltravyx.RuntimeInstallerTestKt'],check=True)

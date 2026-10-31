@@ -110,7 +110,7 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
             else {
                 val evidence = probe(listOf(binary.absolutePath, "--version"))
                 mapOf("name" to name, "status" to if (evidence["exitCode"] == 0) "Instalado" else "Erro",
-                    "reason" to evidence["output"].toString(), "evidence" to evidence,
+                    "reason" to (evidence["output"].toString() + if (name == "git") "\nComandos locais; clone/transportes remotos não habilitados." else ""), "evidence" to evidence,
                     "path" to binary.absolutePath)
             }
         }.toMutableList()
@@ -125,6 +125,7 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
         val node = results.first { it["name"] == "node" }
         results.add(if (!npmCli.isFile) mapOf("name" to "npm", "status" to "Não instalado",
             "reason" to (npmError ?: "CLI npm não empacotada; Node e npm são componentes distintos."))
+        else if (npmError != null) mapOf("name" to "npm", "status" to "Não disponível", "reason" to npmError)
         else if (node["status"] != "Instalado") mapOf("name" to "npm", "status" to "Não disponível",
             "reason" to "CLI presente, mas Node não executou com sucesso.")
         else {
@@ -175,7 +176,7 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
                     File(directory, "hello.txt").writeText("local-only\n")
                     val commands = listOf(listOf("-c", "init.templateDir=", "init"), listOf("add", "hello.txt"),
                         listOf("-c", "user.name=QELTRAVYX smoke", "-c", "user.email=smoke@localhost",
-                            "-c", "commit.gpgsign=false", "commit", "-m", "Smoke local"),
+                            "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "commit", "-m", "Smoke local"),
                         listOf("status", "--porcelain"), listOf("log", "-1", "--format=%s"))
                     val output = StringBuilder()
                     var duration = 0L

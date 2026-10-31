@@ -107,6 +107,18 @@ class PackageTests(unittest.TestCase):
         (q.STATE/'pending.json').write_text('{}')
         with self.assertRaises(q.QpkgError): q.install_local(*args)
 
+    def test_remove_failure_restores_and_success_removes_only_owned_files(self):
+        q.install_local(*self.local())
+        original = q.INDEX.read_bytes()
+        (q.PKGS/'user.txt').write_text('preserve')
+        with mock.patch.object(q, 'save', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError): q.main(['remove', 'demo'])
+        self.assertEqual(q.INDEX.read_bytes(), original)
+        q.verify_installed()
+        q.main(['remove', 'demo'])
+        self.assertEqual(q.registry(), {})
+        self.assertEqual((q.PKGS/'user.txt').read_text(), 'preserve')
+
     def test_concurrent_mutation_is_blocked(self):
         q.init_dirs()
         with q.transaction_lock():

@@ -9,7 +9,11 @@
     "sha256": "7b9adc82d612d0a2a863d96c46de2292552e250cee51956ebbe0146c42aacae9",
     "checksums": "https://nodejs.org/dist/v22.23.4/SHASUMS256.txt",
     "license": "MIT AND bundled third-party notices (LICENSE)",
-    "npm": "deps/npm; version read and recorded from the hash-pinned source"
+    "npm": "deps/npm; version read and recorded from the hash-pinned source",
+    "npm_version": "10.9.9",
+    "patches": {
+      "node-android-traps.patch": "68b68df658ce17f1305a8f919be0d5778a191ec0b8f07a16ce63af4d4d4dd258"
+    }
   },
   "git": {
     "version": "2.56.0",

@@ -25,11 +25,22 @@ export GYP_DEFINES="target_arch=arm64 v8_target_arch=arm64 android_target_arch=a
 export LDFLAGS='-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
 (
   cd "$q_work/node-v$q_version"
+  # The upstream Android patch shipped with 22.23.4 targets an older V8 header.
+  # Apply a narrowly scoped, pinned equivalent: Android must not enable trap handlers.
+  python3 - "$OLDPWD/ci/runtime" <<'PY_PATCH'
+import hashlib,json,sys
+from pathlib import Path
+root=Path(sys.argv[1]); spec=json.loads((root/'sources.json').read_text())['node']
+for name,sha in spec['patches'].items():
+    assert hashlib.sha256((root/name).read_bytes()).hexdigest()==sha
+PY_PATCH
+  patch --batch --forward --fuzz=0 -p1 < "$OLDPWD/ci/runtime/node-android-traps.patch"
   # Explicit configure invocation: upstream android_configure.py discards exit status.
   ./configure --dest-cpu=arm64 --dest-os=android --openssl-no-asm --cross-compiling --with-intl=small-icu
   make -j2
 )
 mkdir -p "$q_output/jniLibs/arm64-v8a"
+cp ci/runtime/node-android-traps.patch "$q_output/assets/qeltravyx/npm/NODE-ANDROID-PATCH.diff"
 cp "$q_work/node-v$q_version/out/Release/node" "$q_output/jniLibs/arm64-v8a/libqeltravyx_node.so"
 if "$q_toolchain/bin/llvm-readelf" -d "$q_output/jniLibs/arm64-v8a/libqeltravyx_node.so" | grep -q libc++_shared.so; then
   cp "$q_toolchain/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$q_output/jniLibs/arm64-v8a/"
