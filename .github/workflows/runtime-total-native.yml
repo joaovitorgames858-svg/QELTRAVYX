@@ -2,6 +2,14 @@ name: Runtime total - Android Bionic Node candidate
 # Manual, isolated from UX V3. No push, signing, installation or release publishing.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/runtime-total
+    paths:
+      - '.github/workflows/runtime-total-native.yml'
+      - 'ci/runtime/**'
+      - 'android/**'
+      - 'lib/**'
 permissions:
   contents: read
 concurrency:

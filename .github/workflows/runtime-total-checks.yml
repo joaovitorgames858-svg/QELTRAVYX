@@ -1,6 +1,15 @@
 name: Runtime total - host regressions
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/runtime-total
+    paths:
+      - '.github/workflows/runtime-total-checks.yml'
+      - 'ci/**'
+      - 'lib/**'
+      - 'test/**'
+      - 'android/**'
   pull_request:
     paths: ['ci/**', 'lib/**', 'test/**', 'android/**', '.github/workflows/runtime-total-*.yml']
 permissions:
