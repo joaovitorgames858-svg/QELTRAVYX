@@ -25,6 +25,24 @@ omitted={root+'/RelNotes': 'Documentation/RelNotes/2.56.0.adoc',
 extract(fetch(Path(sys.argv[1]),spec),Path(sys.argv[1]),root,omitted_links=omitted)
 PY
 q_version=$(python3 -c 'import json; print(json.load(open("ci/runtime/sources.json"))["git"]["version"])')
+# The Git Makefile reuses SHELL_PATH for both the *Android runtime* and
+# build-time recipes. Keep /system/bin/sh compiled into Git, but make GNU make
+# and its source generators execute the Linux runner's /bin/sh.
+# Only modify the hash-verified, disposable source in .build/.
+python3 - "$q_work/git-$q_version/Makefile" <<'PY_HOST_SHELL'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+make_shell = "SHELL = $(SHELL_PATH)"
+generator_shell = "$(QUIET_GEN)$(SHELL_PATH)"
+if s.count(make_shell) != 1 or s.count(generator_shell) < 3:
+    raise SystemExit("Git Makefile mudou: abortando em vez de aplicar patch incerto")
+s = s.replace(make_shell, "SHELL = /bin/sh", 1)
+s = s.replace(generator_shell, "$(QUIET_GEN)/bin/sh")
+p.write_text(s)
+print("Host Linux: geradores e make usam /bin/sh; Git Android preserva /system/bin/sh")
+PY_HOST_SHELL
 q_toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
 # Build only the C executable and its in-process builtins. No curl, Perl, Python,
 # shell helpers or external TLS libraries; remote operations deliberately unavailable.
