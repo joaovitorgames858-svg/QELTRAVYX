@@ -184,3 +184,7 @@ Verificação final adicional: o teste integrado usa também `runtime-extension.
 com diretório nativo de fixture explicitamente apontado para Node do host. `npm install
 ./demo.tgz` passou; nome remoto, `npm run` e `npm exec` retornaram 64, como previsto.
 Kotlin foi recompilado após ajustar RuntimeBridge (limitação Git e erro npm): exit 0.
+
+Commit de correções: `9db4932`. O check de whitespace detectou um espaço de contexto
+na representação textual do patch V8; o patch foi regenerado com contexto de uma linha,
+hash atualizado e dry-run repetido. Esse ajuste não muda o código aplicado.
