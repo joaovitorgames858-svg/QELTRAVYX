@@ -16,5 +16,5 @@ proot-distro login ubuntu --bind "$PROJETO:/root/qeltravyx_runtime_dev" -- bash 
   command -v codex || { echo "Codex CLI não encontrado no Ubuntu"; exit 1; }
   codex --version
   echo "Acesso ao ambiente Ubuntu/PROot não é sandbox forte. Atuação limitada por missão à worktree."
-  codex exec --sandbox danger-full-access -c "approval_policy=never" - < docs/CODEX_MISSAO_RUNTIME_TOTAL.md 2>&1 | tee docs/CODEX_RUNTIME_EXECUCAO.log
+  codex exec --sandbox danger-full-access -c "approval_policy=\"never\"" - < docs/CODEX_MISSAO_RUNTIME_TOTAL.md 2>&1 | tee docs/CODEX_RUNTIME_EXECUCAO.log
 '
