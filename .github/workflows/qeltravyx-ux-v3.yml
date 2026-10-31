@@ -25,7 +25,7 @@ jobs:
           java-version: '21'
 
       - name: Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Android NDK e CMake
         run: |
@@ -72,9 +72,7 @@ jobs:
           CODIGO="${VERSAO##*+}"
           test -n "$NOME"
           [[ "$CODIGO" =~ ^[0-9]+$ ]]
-          printf 'sdk.dir=%s\\nflutter.sdk=%s\\nflutter.versionName=%s\\nflutter.versionCode=%s\\n' \\
-            "$ANDROID_SDK_ROOT" "$FLUTTER_SDK" "$NOME" "$CODIGO" \\
-            > android/local.properties
+          printf 'sdk.dir=%s\nflutter.sdk=%s\nflutter.versionName=%s\nflutter.versionCode=%s\n' "$ANDROID_SDK_ROOT" "$FLUTTER_SDK" "$NOME" "$CODIGO" > android/local.properties
 
       - name: Compilar ARM64
         run: |
