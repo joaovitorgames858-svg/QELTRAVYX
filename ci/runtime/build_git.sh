@@ -53,13 +53,35 @@ if body.count(host_generator) != 1:
 shared.write_text(body.replace(host_generator, '/bin/sh "$(1)/GIT-VERSION-GEN"', 1))
 print("Host Linux: make, geradores e GIT-VERSION-GEN usam /bin/sh; Android SHELL_PATH preservado")
 PY_HOST_SHELL
+# Android Bionic does not provide POSIX pthread cancellation. Keep the
+# pthread signal masking, locking and async-thread behavior; skip only the
+# two unsupported cancellation-state calls in Git's atfork handling.
+# Apply only to the pinned, disposable upstream source tree.
+python3 - "$q_work/git-$q_version/run-command.c" <<'PY_ANDROID_PTHREAD'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+patches = [
+    ('CHECK_BUG(pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &as->cs),\n\t\t"disabling cancellation");',
+     '#ifndef __ANDROID__\n\tCHECK_BUG(pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &as->cs),\n\t\t"disabling cancellation");\n#endif'),
+    ('CHECK_BUG(pthread_setcancelstate(as->cs, NULL),\n\t\t"re-enabling cancellation");',
+     '#ifndef __ANDROID__\n\tCHECK_BUG(pthread_setcancelstate(as->cs, NULL),\n\t\t"re-enabling cancellation");\n#endif'),
+]
+for old, new in patches:
+    if s.count(old) != 1:
+        raise SystemExit("Git run-command.c mudou: abortando patch pthread Android")
+    s = s.replace(old, new, 1)
+p.write_text(s)
+print("Android Bionic: cancelamento pthread indisponível protegido; máscaras de sinal mantidas")
+PY_ANDROID_PTHREAD
 q_toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
 # Build only the C executable and its in-process builtins. No curl, Perl, Python,
 # shell helpers or external TLS libraries; remote operations deliberately unavailable.
 make -C "$q_work/git-$q_version" -j2 git \
   CC="$q_toolchain/bin/aarch64-linux-android24-clang" \
   AR="$q_toolchain/bin/llvm-ar" \
-  CFLAGS='-O2 -fPIE -D__ANDROID_API__=24' \
+  CFLAGS='-O2 -fPIE' \
   LDFLAGS='-pie -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384' \
   NO_CURL=YesPlease NO_EXPAT=YesPlease NO_OPENSSL=YesPlease \
   NO_GETTEXT=YesPlease NO_ICONV=YesPlease NO_PERL=YesPlease NO_PYTHON=YesPlease \
