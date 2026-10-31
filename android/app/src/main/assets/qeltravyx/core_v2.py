@@ -1200,6 +1200,19 @@ if __name__ == "__main__":
 '''
 PYTHON_FILES = {'calculator.py': PYTHON_SOURCE, 'test_calculator.py': PYTHON_TEST,
                 'README.md': '# Calculadora\n\nPython padrão; execute: python3 -I -B test_calculator.py\n'}
+JAVASCRIPT_SOURCE = "'use strict';\nexports.add = (a, b) => a + b;\n"
+JAVASCRIPT_BUG = "'use strict';\nexports.add = (a, b) => a - b;\n"
+JAVASCRIPT_TEST = """'use strict';
+const assert = require('assert');
+const {add} = require('./calculator.js');
+assert.strictEqual(add(2, 3), 5);
+assert.strictEqual(add(-2, -3), -5);
+assert.strictEqual(add(0, 0), 0);
+console.log('CORE JAVASCRIPT: 3 testes aprovados');
+"""
+JAVASCRIPT_FILES = {'calculator.js': JAVASCRIPT_SOURCE, 'test_calculator.js': JAVASCRIPT_TEST,
+    'README.md': '# Calculadora JavaScript\n\nExecute: node test_calculator.js\nSem dependências ou downloads.\n'}
+
 FLUTTER_FILES = {
     'analysis_options.yaml': 'analyzer:\n  exclude:\n    - build/**\n',
     'pubspec.yaml': '''name: core_example
@@ -1246,6 +1259,8 @@ class Planner:
         text = normal(request)
         if text in ('criar projeto python', 'criar projeto python de exemplo', 'desenvolver um pequeno projeto python'):
             return self.example('python')
+        if text in ('criar projeto javascript', 'criar projeto javascript de exemplo'):
+            return self.example('javascript')
         if text in ('criar projeto flutter', 'criar projeto flutter de exemplo'):
             return self.example('flutter')
         if text.startswith('planejar '):
@@ -1258,9 +1273,9 @@ class Planner:
         return None
 
     def example(self, kind):
-        files = PYTHON_FILES if kind == 'python' else FLUTTER_FILES
+        files = {'python': PYTHON_FILES, 'javascript': JAVASCRIPT_FILES, 'flutter': FLUTTER_FILES}[kind]
         return self.validate({'objective': 'Criar exemplo ' + kind, 'requirements': ['Estrutura, código, testes e instruções'],
-                              'architecture': 'Calculadora e unittest' if kind == 'python' else 'MaterialApp e widget test',
+                              'architecture': 'Calculadora e testes' if kind in ('python', 'javascript') else 'MaterialApp e widget test',
                               'tasks': [{'id': 'files', 'depends_on': [], 'description': 'Criar arquivos com backup'},
                                         {'id': 'verify', 'depends_on': ['files'], 'description': 'Conferir conteúdo salvo'},
                                         {'id': 'tests', 'depends_on': ['verify'], 'description': 'Executar testes explicitamente autorizados'}],
@@ -1312,7 +1327,7 @@ class Planner:
             if display(item['content']) != item['content'].replace('\r', ''):
                 raise CoreError('Conteúdo sensível ou controle binário bloqueado')
         # A model cannot label arbitrary code as a trusted built-in example.
-        if plan.get('example') not in (None, 'python', 'flutter'):
+        if plan.get('example') not in (None, 'python', 'javascript', 'flutter'):
             raise CoreError('Exemplo inválido')
         return plan
 
@@ -1637,6 +1652,8 @@ class Engine:
             return self.runtime_status(), 'completed'
         if text.startswith('git '):
             return self.git(text[4:], approved), 'completed'
+        if text == 'testar projeto javascript':
+            return self.test_javascript(approved), 'completed'
         if text == 'testar projeto python':
             return self.test_python(approved), 'completed'
         if text == 'aplicar plano':
@@ -1661,7 +1678,8 @@ class Engine:
             # Example creation is deterministic. Arbitrary JSON/model plans are staged.
             create_example = text in (
                 'criar projeto python', 'criar projeto python de exemplo', 'desenvolver um pequeno projeto python',
-                'criar projeto flutter', 'criar projeto flutter de exemplo')
+                'criar projeto flutter', 'criar projeto flutter de exemplo',
+                'criar projeto javascript', 'criar projeto javascript de exemplo')
             return self.save_plan(plan, execute=create_example, create_only=create_example)
         # QELTRAVYX_FREE_PROMPT_V1
         # Comandos internos possuem prioridade. Pedidos nao reconhecidos
@@ -1689,7 +1707,7 @@ class Engine:
                 execute=False
             )
 
-        return ('Pedido não suportado pelo planejador determinístico. Use: criar projeto python; criar projeto flutter; '
+        return ('Pedido não suportado pelo planejador determinístico. Use: criar projeto python; criar projeto javascript; criar projeto flutter; '
                 'planejar <objetivo>; plano json {...}; ver plano; aplicar plano; testar projeto python; '
                 'verificar projeto python; verificar plano python; ver relatorio estatico; '
                 'listar pasta src; localizar texto; pesquisar assunto; documentação https://...; '
@@ -1871,10 +1889,10 @@ class Engine:
         self.state['tests_passed'] = False
         return ('Arquivos criados/editados e conferidos. Backup: ' + backup +
                 '\nProjeto ainda não validado por testes. ' +
-                ('Envie: testar projeto python.' if plan.get('example') == 'python' else
+                ('Envie: testar projeto ' + plan['example'] + '.' if plan.get('example') in ('python', 'javascript') else
                  'Execute os comandos do README em ambiente autorizado; tarefas restantes permanecem pendentes.')), 'awaiting_tests'
 
-    def process(self, argv, seconds=8, permission='read'):
+    def process(self, argv, seconds=8, permission='read', cwd=None):
         def check():
             self.checkpoint()
             self.store.permit(permission)
@@ -1885,7 +1903,7 @@ class Engine:
                     'GIT_TERMINAL_PROMPT': '0', 'GIT_OPTIONAL_LOCKS': '0'})
         # Temporary output is in private metadata, capped while the child runs.
         with tempfile.TemporaryFile(dir=self.store.meta) as output:
-            process = subprocess.Popen(argv, cwd=self.store.root, env=env, stdin=subprocess.DEVNULL,
+            process = subprocess.Popen(argv, cwd=cwd or self.store.root, env=env, stdin=subprocess.DEVNULL,
                                        stdout=output, stderr=output, start_new_session=True)
             start = time.monotonic()
             try:
@@ -1940,6 +1958,50 @@ class Engine:
             self.state['backup'] = self.store.apply([{'path': 'calculator.py', 'expected': source, 'content': PYTHON_SOURCE}], self.checkpoint)
             source = PYTHON_SOURCE
 
+    def test_javascript(self, approved):
+        self.store.permit('tests')
+        if not approved:
+            raise ApprovalRequired('Executar 3 testes do template JavaScript e corrigir somente a troca conhecida de + por -? Sem sandbox Android; apenas snapshots idênticos ao template interno.')
+        # APK-native path only. Host tests supply an explicit mock for this resolver.
+        binary = self.node_binary()
+        source = self.store.read('calculator.js')
+        test = self.store.read('test_calculator.js')
+        if source not in (JAVASCRIPT_SOURCE, JAVASCRIPT_BUG) or test != JAVASCRIPT_TEST:
+            raise CoreError('Código não confiável: execução automática bloqueada; requer isolamento apropriado')
+        while True:
+            self.store.permit('tests')
+            self.step('verifying', 'Executando assert do template JavaScript autorizado')
+            with tempfile.TemporaryDirectory(prefix='verify-js-', dir=self.store.meta) as folder:
+                root = Path(folder)
+                (root / 'calculator.js').write_text(source)
+                (root / 'test_calculator.js').write_text(test)
+                # Keep package.json/loaders from the mutable project out of resolution.
+                (root / 'package.json').write_text('{"type":"commonjs"}')
+                code, output = self.process([binary, str(root / 'test_calculator.js')], permission='tests', cwd=root)
+            self.step('observing', 'Código de saída: %d\n%s' % (code, output))
+            self.store.permit('tests')
+            if code == 0:
+                if self.store.read('calculator.js') != source or self.store.read('test_calculator.js') != test:
+                    raise CoreError('Projeto alterado durante testes; resultado não valida versão atual')
+                self.store.save('verification.json', {'files': {'calculator.js': digest(source), 'test_calculator.js': digest(test)},
+                    'runtime': 'node', 'exitCode': code, 'output': output})
+                self.state['tests_passed'] = True
+                return 'Testes JavaScript reais aprovados (3 casos). Correções: %d\n%s' % (self.state['corrections'], output)
+            if source != JAVASCRIPT_BUG or self.state['corrections'] >= self.store.limits.corrections:
+                raise CoreError('Falha JavaScript sem correção determinística disponível')
+            self.state['corrections'] += 1
+            self.step('correcting', 'Corrigindo somente operador do template JS; backup obrigatório')
+            self.state['backup'] = self.store.apply([{'path': 'calculator.js', 'expected': source, 'content': JAVASCRIPT_SOURCE}], self.checkpoint)
+            source = JAVASCRIPT_SOURCE
+
+    def node_binary(self):
+        if not os.environ.get('QELTRAVYX_PYHOME'):
+            raise CoreError('Node do APK indisponível neste ambiente; nenhum fallback para ferramentas do host')
+        binary = Path(sys.executable).parent / 'libqeltravyx_node.so'
+        if not binary.is_file() or not os.access(binary, os.X_OK):
+            raise CoreError('Node não instalado no APK; gere/valide o runtime Bionic primeiro')
+        return str(binary)
+
     def runtime_status(self):
         if not os.environ.get('QELTRAVYX_PYHOME'):
             return 'Fora do ambiente QELTRAVYX: ferramentas do host não comprovam runtimes do APK.'
@@ -1959,7 +2021,7 @@ class Engine:
             if name == 'pip' and code == 0:
                 state = 'limitado: wheels Python puros offline'
             lines.append('%s: %s (exitCode %s)\n%s' % (name, state, code, output))
-        lines.append('npm: não integrado. Versão não comprova operações; use os testes em Pacotes.')
+        lines.append('npm: inspeção e instalação/import offline disponíveis no painel Pacotes quando empacotado; não inferido pela presença de Node.')
         return '\n'.join(lines)
 
     def git(self, action, approved):

@@ -122,3 +122,14 @@ Resultados adicionais e commits serão acrescentados conforme executados.
 - CI nativa manual: jobs separados Node/Git + candidato APK unsigned dependente dos dois;
   hashes verificados antes de staging, ELF Bionic/ARM64/PIE/alinhamento 16 KiB conferidos.
   Não houve build nativo nem APK local nesta sessão. Versão continua 1.0.17+43.
+
+### Ciclo CORE e correção do smoke npm
+
+- Commit infraestrutura/runtime/QPKG: `16cdf97`.
+- Smoke contra npm 10.9.9 real da fonte rejeitou `userconfig=globalconfig=/dev/null`
+  (npm não aceita carregar o mesmo arquivo como duas configurações). Corrigido para
+  arquivos distintos e prefixo explícito. Falha foi observada, não mascarada.
+- Ciclo CORE testado no host inclui exemplo Python, JS, falha/correção/reteste, backup,
+  runtime ausente, bloqueio de código arbitrário, permissão revogada e cancelamento.
+  A resolução Node de produção só aceita o executável do APK; o teste host injeta
+  explicitamente `/usr/bin/node`. Isso não habilita fallback Termux/glibc no aplicativo.
