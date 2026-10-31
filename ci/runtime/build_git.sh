@@ -38,7 +38,7 @@ make -C "$q_work/git-$q_version" -j2 git \
   NO_TCLTK=YesPlease NO_INSTALL_HARDLINKS=YesPlease \
   CSPRNG_METHOD= HAVE_SYNC_FILE_RANGE= FSMONITOR_DAEMON_BACKEND= FSMONITOR_OS_SETTINGS= \
   ac_cv_fread_reads_directories=YesPlease ac_cv_snprintf_returns_bogus=No \
-  prefix=/nonexistent/qeltravyx-git SHELL_PATH=/system/bin/sh
+  prefix=/nonexistent/qeltravyx-git SHELL=/bin/sh SHELL_PATH=/system/bin/sh
 cp "$q_work/git-$q_version/git" "$q_output/jniLibs/arm64-v8a/libqeltravyx_git.so"
 cp "$q_work/git-$q_version/COPYING" "$q_output/licenses/git/"
 # Distribute corresponding exact source alongside the GPL executable candidate.

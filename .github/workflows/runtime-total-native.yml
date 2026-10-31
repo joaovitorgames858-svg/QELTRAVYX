@@ -17,8 +17,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   node:
+    # The Node/V8 cross build is expensive; run it only when explicitly requested.
+    # Routine pushes first validate the fast Git native job.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

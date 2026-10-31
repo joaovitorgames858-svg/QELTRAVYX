@@ -37,7 +37,8 @@ PY_PATCH
   patch --batch --forward --fuzz=0 -p1 < "$OLDPWD/ci/runtime/node-android-traps.patch"
   # Explicit configure invocation: upstream android_configure.py discards exit status.
   ./configure --dest-cpu=arm64 --dest-os=android --openssl-no-asm --cross-compiling --with-intl=small-icu
-  make -j2
+  # Use four compiler jobs on the 4-vCPU Linux runner; no host/glibc binary is shipped.
+  make -j4
 )
 mkdir -p "$q_output/jniLibs/arm64-v8a"
 cp ci/runtime/node-android-traps.patch "$q_output/assets/qeltravyx/npm/NODE-ANDROID-PATCH.diff"
