@@ -1,0 +1,104 @@
+name: QELTRAVYX UX V3 APK
+
+on:
+  push:
+    branches:
+      - ux-v3-ci
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Android NDK e CMake
+        run: |
+          sdkmanager --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Flutter 3.47.2
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Dependencias Flutter
+        run: flutter pub get
+
+      - name: Testes do terminal
+        run: |
+          flutter test \
+            test/terminal_input_test.dart \
+            test/terminal_selection_test.dart \
+            test/terminal_prompt_test.dart
+
+      - name: Preparar APK sem assinatura
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text()
+          old = 'signingConfig = signingConfigs.getByName("debug")'
+          assert s.count(old) == 1, "Configuracao inesperada"
+          p.write_text(s.replace(old, '// Assinatura local', 1))
+          PY
+
+      - name: Configurar versao e caminhos Android
+        shell: bash
+        run: |
+          FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
+          VERSAO="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          NOME="${VERSAO%%+*}"
+          CODIGO="${VERSAO##*+}"
+          test -n "$NOME"
+          [[ "$CODIGO" =~ ^[0-9]+$ ]]
+          printf 'sdk.dir=%s\\nflutter.sdk=%s\\nflutter.versionName=%s\\nflutter.versionCode=%s\\n' \\
+            "$ANDROID_SDK_ROOT" "$FLUTTER_SDK" "$NOME" "$CODIGO" \\
+            > android/local.properties
+
+      - name: Compilar ARM64
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease \
+            --no-daemon \
+            --max-workers=2 \
+            --console=plain \
+            -Ptarget-platform=android-arm64
+
+      - name: Separar APK unsigned
+        run: |
+          mkdir -p artifacts
+          APK=$(find build/app/outputs \
+            -type f -name '*unsigned*.apk' \
+            -print -quit)
+          test -n "$APK"
+          cp "$APK" artifacts/QELTRAVYX-UX-V3-unsigned.apk
+          sha256sum artifacts/*.apk
+
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: QELTRAVYX-UX-V3-UNSIGNED
+          path: artifacts/*.apk
+          if-no-files-found: error

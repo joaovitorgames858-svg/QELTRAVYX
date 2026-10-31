@@ -565,7 +565,7 @@ class _QeltravyxAgentPageState extends State<QeltravyxAgentPage> {
       if (!mounted || _project != project) return;
       if (repairPath != null) {
         // So registrar APOS sucesso da gravacao nativa com backup.
-        _cycleLog.repairApplied(project!, repairPath);
+        _cycleLog.repairApplied(project, repairPath);
         _postApplyProject = project;
         _postApplyPath = repairPath;
         _scriptToRun.text = repairPath;

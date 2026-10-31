@@ -37,11 +37,14 @@ class MainActivity : FlutterActivity() {
     private val worker = Executors.newCachedThreadPool()
     private val sessions = ConcurrentHashMap<Int, PtySession>()
     private val nextId = AtomicInteger(1)
+    private val coreV2 by lazy { CoreV2Bridge(this, ui, worker, ::safeProject) }
     @Volatile private var eventSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        coreV2.attach(messenger)
+        RuntimeBridge(this, ui, worker).attach(messenger)
         // QELTRAVYX_VERSION_ALPHA094: versão real do APK instalado.
         MethodChannel(messenger, "qeltravyx/version")
             .setMethodCallHandler { call, result ->
@@ -92,9 +95,10 @@ class MainActivity : FlutterActivity() {
             val filename = call.argument<String>("file")
             val text = call.argument<String>("text")
             val newName = call.argument<String>("newName")
+            val core = call.argument<Boolean>("core") == true
             worker.execute {
                 try {
-                    val value = handleWorkspace(call.method, project, filename, text, newName)
+                    val value = handleWorkspace(call.method, project, filename, text, newName, core)
                     ui.post { result.success(value) }
                 } catch (e: Exception) {
                     ui.post { result.error("WORKSPACE_ERROR", e.message ?: "Falha no workspace", null) }
@@ -109,7 +113,7 @@ class MainActivity : FlutterActivity() {
                 override fun onCancel(arguments: Any?) { eventSink = null }
             })
                 // QELTRAVYX_ALPHA097_AGENT: preferencias persistentes por projeto.
-        // Nao executa IA, comandos, downloads ou alteracoes em arquivos.
+        // Legacy contracts plus CORE V1 guards, execution cancellation and metadata memory.
         MethodChannel(messenger, "qeltravyx/agent").setMethodCallHandler { call, result ->
             try {
                 val projectName = call.argument<String>("project")
@@ -124,48 +128,93 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "runAgentPython" -> {
                         val script = call.argument<String>("file")
+                        val core = call.argument<Boolean>("core") == true
+                        val runId = call.argument<String>("runId")
+                        val expected = call.argument<String>("expected")
+                        val cancel = if (core) {
+                            require(expected != null) { "Versao revisada ausente" }
+                            require(call.argument<Boolean>("consent") == true) { "Consentimento por execucao ausente" }
+                            require(runId != null && Regex("[0-9]{1,24}").matches(runId)) { "Execucao invalida" }
+                            require(coreRuns.isEmpty()) { "Execucao CORE ja pendente" }
+                            AtomicBoolean(false).also { coreRuns["$projectName:$runId"] = it }
+                        } else null
                         worker.execute {
                             try {
-                                val output = runAgentPython(projectName!!, script)
+                                if (core) {
+                                    require(prefs.getBoolean(base + "read", false) && prefs.getBoolean(base + "tests", false)) { "Leitura e testes nao autorizados" }
+                                    CorePolicy.path(script ?: "")
+                                    val source = managerPath(projectName, script)
+                                    CorePolicy.read(source)
+                                }
+                                val output = runAgentPython(projectName!!, script, cancel, if (core) expected else null)
                                 ui.post { result.success(output) }
                             } catch (e: Exception) {
                                 ui.post { result.error("AGENT_PYTHON", e.message ?: "Falha ao executar Python", null) }
+                            } finally {
+                                if (core) coreRuns.remove("$projectName:$runId")
                             }
                         }
                     }
                     "applyAgentPlan" -> {
                         val changes = call.argument<List<Map<String, Any?>>>("changes")
+                        val core = call.argument<Boolean>("core") == true
+                        if (core) require(call.argument<Boolean>("consent") == true) { "Confirmacao de escrita ausente" }
                         worker.execute {
                             try {
-                                val output = applyAgentPlan(projectName!!, changes)
+                                val output = applyAgentPlan(projectName!!, changes, core)
                                 ui.post { result.success(output) }
                             } catch (e: Exception) {
                                 ui.post { result.error("AGENT_APPLY", e.message ?: "Falha na aplicacao", null) }
                             }
                         }
                     }
+                    "cancelCorePython" -> {
+                        val runId = call.argument<String>("runId")
+                        coreRuns["$projectName:$runId"]?.set(true)
+                        result.success(null)
+                    }
+                    "recordCoreMemory" -> {
+                        val action = call.argument<String>("action")
+                        val phase = call.argument<String>("phase")
+                        require(action != null && phase != null && action in CorePolicy.actions && phase in CorePolicy.outcomes) { "Evento CORE invalido" }
+                        // Separate bounded metadata store. No prompts, source, paths or output.
+                        val memory = getSharedPreferences("qeltravyx_core_memory_v1", MODE_PRIVATE)
+                        val old = JSONArray(memory.getString(projectName, "[]"))
+                        val next = JSONArray()
+                        for (i in maxOf(0, old.length() - 39) until old.length()) next.put(old.getString(i))
+                        next.put("${System.currentTimeMillis()} | $action | $phase")
+                        check(memory.edit().putString(projectName, next.toString()).commit()) { "Falha ao registrar memoria" }
+                        result.success(null)
+                    }
+                    "getCoreMemory" -> {
+                        require(prefs.getBoolean(base + "read", false)) { "Leitura nao autorizada" }
+                        val memory = getSharedPreferences("qeltravyx_core_memory_v1", MODE_PRIVATE)
+                        val entries = JSONArray(memory.getString(projectName, "[]"))
+                        result.success((0 until entries.length()).map { entries.getString(it) })
+                    }
                     "getPermissions" -> result.success(mapOf(
                         "read" to prefs.getBoolean(base + "read", false),
                         "write" to prefs.getBoolean(base + "write", false),
                         "download" to prefs.getBoolean(base + "download", false),
-                        "tests" to prefs.getBoolean(base + "tests", false)
+                        "tests" to prefs.getBoolean(base + "tests", false),
+                        "web" to prefs.getBoolean(base + "web", false)
                     ))
                     "savePermissions" -> {
-                        val keys = listOf("read", "write", "download", "tests")
+                        val keys = listOf("read", "write", "download", "tests", "web")
                         val editor = prefs.edit()
                         for (key in keys) {
                             val permitted = call.argument<Boolean>(key) ?: false
                             editor.putBoolean(base + key, permitted)
                         }
-                        if (editor.commit()) result.success(null)
+                        if (editor.commit()) { coreV2.refresh(projectName); result.success(null) }
                         else result.error("AGENT_PERSISTENCE", "Nao foi possivel gravar a autorizacao", null)
                     }
                     "revokePermissions" -> {
                         val editor = prefs.edit()
-                        listOf("read", "write", "download", "tests").forEach {
+                        listOf("read", "write", "download", "tests", "web").forEach {
                             editor.remove(base + it)
                         }
-                        if (editor.commit()) result.success(null)
+                        if (editor.commit()) { coreV2.refresh(projectName); result.success(null) }
                         else result.error("AGENT_PERSISTENCE", "Nao foi possivel revogar a autorizacao", null)
                     }
                     else -> result.notImplemented()
@@ -206,10 +255,9 @@ class MainActivity : FlutterActivity() {
                                 worker.execute {
                                     try {
                                         synchronized(session.writer) {
-                                            if (!session.closed.get()) {
-                                                session.writer.write(data.toByteArray(Charsets.UTF_8))
-                                                session.writer.flush()
-                                            }
+                                            check(!session.closed.get()) { "Sessão encerrada antes do envio" }
+                                            session.writer.write(data.toByteArray(Charsets.UTF_8))
+                                            session.writer.flush()
                                         }
                                         ui.post {
                                             if (call.method == "sendCommand") {
@@ -285,7 +333,9 @@ class MainActivity : FlutterActivity() {
             "Projeto: use letras, números, _ ou - (máximo 40 caracteres)"
         }
         val base = projectRoot()
-        val path = File(base, name).canonicalFile
+        val requested = File(base, name)
+        val path = requested.canonicalFile
+        require(path == requested.absoluteFile) { "Links de projeto nao permitidos" }
         require(path.parentFile == base) { "Projeto fora do workspace" }
         return path
     }
@@ -315,7 +365,8 @@ class MainActivity : FlutterActivity() {
     private fun managerFileAllowed(name: String): Boolean {
         val normalized = name.lowercase(java.util.Locale.ROOT)
         return normalized.endsWith(".py") || normalized.endsWith(".sh") ||
-                normalized.endsWith(".json") || normalized.endsWith(".txt")
+                normalized.endsWith(".json") || normalized.endsWith(".txt") ||
+                listOf(".md", ".dart", ".yaml", ".yml", ".toml", ".html", ".css", ".js", ".ts").any { normalized.endsWith(it) }
     }
 
     private fun managerPath(project: String?, relative: String?, allowRoot: Boolean = false): File {
@@ -343,8 +394,10 @@ class MainActivity : FlutterActivity() {
     // QELTRAVYX_ALPHA099_PYTHON_RUNNER: executor com limite de tempo e saida.
     // AVISO: subprocesso usa UID do aplicativo; NAO e sandbox de seguranca.
     private val agentPythonBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val coreRuns = ConcurrentHashMap<String, AtomicBoolean>()
 
-    private fun runAgentPython(projectName: String, relativePath: String?): Map<String, Any> {
+    private fun runAgentPython(projectName: String, relativePath: String?, cancel: AtomicBoolean? = null, expected: String? = null): Map<String, Any> {
+        require(cancel?.get() != true) { "Execucao cancelada antes de iniciar" }
         val prefs = getSharedPreferences("qeltravyx_agent_permissions_v1", MODE_PRIVATE)
         require(prefs.getBoolean("project:$projectName:read", false) &&
                 prefs.getBoolean("project:$projectName:tests", false)) {
@@ -391,6 +444,11 @@ class MainActivity : FlutterActivity() {
             env["ANDROID_ROOT"] = "/system"
             env["ANDROID_DATA"] = "/data"
             env["LD_LIBRARY_PATH"] = applicationInfo.nativeLibraryDir
+            require(cancel?.get() != true) { "Execucao cancelada antes de iniciar" }
+            if (expected != null) {
+                require(managerPath(projectName, relativePath) == script && CorePolicy.read(script) == expected) { "Arquivo alterado desde o consentimento" }
+                require(prefs.getBoolean("project:$projectName:read", false) && prefs.getBoolean("project:$projectName:tests", false)) { "Autorizacao revogada" }
+            }
             val launched = builder.start()
             process = launched
             val output = java.io.ByteArrayOutputStream()
@@ -413,7 +471,15 @@ class MainActivity : FlutterActivity() {
             }, "qeltravyx-agent-python-output")
             reader.isDaemon = true
             reader.start()
-            val finished = launched.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(8)
+            var finished = false
+            while (cancel?.get() != true && System.nanoTime() < deadline) {
+                if (launched.waitFor(100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    finished = true
+                    break
+                }
+            }
+            val cancelled = cancel?.get() == true
             if (!finished) {
                 launched.destroyForcibly()
                 launched.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -426,10 +492,11 @@ class MainActivity : FlutterActivity() {
             return mapOf(
                 "script" to relativePath,
                 "exitCode" to exitCode,
-                "timedOut" to !finished,
+                "timedOut" to (!finished && !cancelled),
+                "cancelled" to cancelled,
                 "truncated" to truncated.get(),
                 "output" to captured,
-                "message" to if (!finished) "Tempo limite de 8 segundos" else "Processo encerrado"
+                "message" to if (cancelled) "Execucao cancelada" else if (!finished) "Tempo limite de 8 segundos" else "Processo encerrado"
             )
         } finally {
             process?.destroyForcibly()
@@ -438,7 +505,8 @@ class MainActivity : FlutterActivity() {
     }
 
     // QELTRAVYX_ALPHA098_AGENT_APPLY: escritas limitadas e auditadas no projeto.
-    private fun applyAgentPlan(projectName: String, changes: List<Map<String, Any?>>?): Map<String, Any> {
+    @Synchronized
+    private fun applyAgentPlan(projectName: String, changes: List<Map<String, Any?>>?, core: Boolean = false): Map<String, Any> {
         val prefs = getSharedPreferences("qeltravyx_agent_permissions_v1", MODE_PRIVATE)
         require(prefs.getBoolean("project:$projectName:write", false)) {
             "Autorizacao de escrita do projeto ausente ou revogada"
@@ -457,6 +525,12 @@ class MainActivity : FlutterActivity() {
             val content = record["content"] as? String ?: error("Conteudo ausente")
             require(record.containsKey("expected")) { "Versao original ausente" }
             val expected = record["expected"] as? String
+            if (core) {
+                require(prefs.getBoolean("project:$projectName:read", false)) { "Leitura nao autorizada" }
+                CorePolicy.path(relative)
+                CorePolicy.content(content)
+                if (expected != null) CorePolicy.content(expected)
+            }
             val file = managerPath(projectName, relative)
             require(managerFileAllowed(file.name)) { "Extensao nao permitida" }
             require(relative.split('/').size <= 4 && relative.length <= 180) { "Caminho muito longo" }
@@ -466,7 +540,8 @@ class MainActivity : FlutterActivity() {
             require(data.size <= 12000) { "Arquivo proposto maior que 12 KB" }
             val prior: ByteArray? = if (file.exists()) {
                 require(file.isFile && file.length() <= 256L * 1024L) { "Arquivo nao suportado" }
-                require(expected != null && file.readText(Charsets.UTF_8) == expected) {
+                val currentText = if (core) CorePolicy.read(file) else file.readText(Charsets.UTF_8)
+                require(expected != null && currentText == expected) {
                     "Arquivo alterado desde a previa: $relative"
                 }
                 file.readBytes()
@@ -501,7 +576,12 @@ class MainActivity : FlutterActivity() {
             require(prefs.getBoolean("project:$projectName:write", false)) {
                 "Autorizacao de escrita revogada"
             }
+            if (core) require(prefs.getBoolean("project:$projectName:read", false)) { "Leitura revogada" }
             for (change in prepared) {
+                require(managerPath(projectName, change.path) == change.file) { "Caminho alterado desde a previa" }
+                val unchanged = if (change.old == null) !change.file.exists()
+                    else change.file.isFile && change.file.length() <= 256L * 1024L && change.file.readBytes().contentEquals(change.old)
+                require(unchanged) { "Arquivo alterado durante o backup" }
                 val temp = File.createTempFile(".qeltravyx_agent_", ".tmp", change.file.parentFile)
                 try {
                     FileOutputStream(temp).use { stream ->
@@ -535,20 +615,29 @@ class MainActivity : FlutterActivity() {
             "paths" to prepared.map { it.path },
             "message" to "Alteracoes aplicadas com backup. Nenhum comando executado.")
     }
+    @Synchronized
     private fun handleWorkspace(method: String, project: String?, filename: String?,
-                                text: String?, newName: String?): Any? {
+                                text: String?, newName: String?, core: Boolean = false): Any? {
+        if (core) {
+            require(method == "listEntries" || method == "readTextFile") { "Ferramenta CORE nao permitida" }
+            val prefs = getSharedPreferences("qeltravyx_agent_permissions_v1", MODE_PRIVATE)
+            require(prefs.getBoolean("project:$project:read", false)) { "Leitura nao autorizada" }
+            if (!filename.isNullOrEmpty()) CorePolicy.path(filename, folder = method == "listEntries")
+        }
         when (method) {
             // QELTRAVYX_ALPHA095_MANAGER: metodos exclusivos do novo explorador.
             "listEntries" -> {
                 val folder = managerPath(project, filename, allowRoot = true)
                 require(folder.isDirectory) { "Pasta nao encontrada" }
-                return folder.listFiles()?.filter { child ->
+                val children = folder.listFiles() ?: emptyArray<File>()
+                if (core) require(children.size <= CorePolicy.MAX_ENTRIES) { "Pasta excede 200 entradas" }
+                return children.filter { child ->
+                    (!core || runCatching { CorePolicy.path(child.name, folder = child.isDirectory) }.isSuccess) &&
                     child.canonicalFile == child.absoluteFile &&
                             (child.isDirectory || (child.isFile && managerFileAllowed(child.name)))
-                }?.sortedWith(compareBy<File> { !it.isDirectory }
+                }.sortedWith(compareBy<File> { !it.isDirectory }
                     .thenBy { it.name.lowercase(java.util.Locale.ROOT) })
-                    ?.map { mapOf("name" to it.name, "isDirectory" to it.isDirectory) }
-                    ?: emptyList<Map<String, Any>>()
+                    .map { mapOf("name" to it.name, "isDirectory" to it.isDirectory) }
             }
             "createFolder" -> {
                 val folder = managerPath(project, filename)
@@ -569,7 +658,7 @@ class MainActivity : FlutterActivity() {
                 val file = managerPath(project, filename)
                 require(file.isFile && managerFileAllowed(file.name)) { "Arquivo nao suportado" }
                 require(file.length() <= 256L * 1024L) { "Arquivo maior que 256 KB" }
-                return file.readText(Charsets.UTF_8)
+                return if (core) CorePolicy.read(file) else file.readText(Charsets.UTF_8)
             }
             "saveTextFile" -> {
                 val file = managerPath(project, filename)
@@ -691,7 +780,10 @@ class MainActivity : FlutterActivity() {
         val destination = File(filesDir, "python-runtime-3.14.9")
         val marker = File(destination, ".qeltravyx_ready")
         if (marker.isFile && File(destination,
-            "lib/python3.14/encodings/__init__.py").isFile) return
+            "lib/python3.14/encodings/__init__.py").isFile) {
+            RuntimePip.prepare(this)
+            return
+        }
 
         val pending = File(filesDir, "python-runtime-3.14.9.tmp")
         if (pending.exists()) pending.deleteRecursively()
@@ -726,6 +818,7 @@ class MainActivity : FlutterActivity() {
             check(pending.renameTo(destination)) {
                 "Não foi possível ativar o Python preparado"
             }
+            RuntimePip.prepare(this)
         } catch (e: Exception) {
             pending.deleteRecursively()
             throw e
@@ -792,6 +885,16 @@ class MainActivity : FlutterActivity() {
         if (!bashrc.readText(Charsets.UTF_8).contains(py061Marker)) {
             bashrc.appendText("\n" + py061Extension + "\n", Charsets.UTF_8)
         }
+        // Append only: preserve Python functions, user profiles and existing packages.
+        val runtimeMarker = "# QELTRAVYX_RUNTIME_BASE_1_START"
+        val runtimeExtension = assets.open("qeltravyx/runtime-extension.sh")
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        check(runtimeExtension.contains(runtimeMarker)) { "Extensão de runtime inválida" }
+        for (shellProfile in listOf(profile, bashrc)) {
+            if (!shellProfile.readText(Charsets.UTF_8).contains(runtimeMarker)) {
+                shellProfile.appendText("\n" + runtimeExtension + "\n", Charsets.UTF_8)
+            }
+        }
         // QELTRAVYX_QPKG_ALPHA08: initialize trusted built-in qpkg manager.
         // Existing user profiles, Python runtime, Bash history and projects stay intact.
         val qpkgMarker = "# QELTRAVYX_QPKG_0_8_START"
@@ -803,6 +906,20 @@ class MainActivity : FlutterActivity() {
         }
         if (!bashrc.readText(Charsets.UTF_8).contains(qpkgMarker)) {
             bashrc.appendText("\n" + qpkgExtension + "\n", Charsets.UTF_8)
+        }
+        // App-owned launcher; user profiles, history and workspace stay intact.
+        val sessionRc = File(profileDir, "session.bashrc")
+        val sessionConfig = assets.open("qeltravyx/session.bashrc")
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        if (!sessionRc.exists() || sessionRc.readText(Charsets.UTF_8) != sessionConfig) {
+            sessionRc.writeText(sessionConfig, Charsets.UTF_8)
+        }
+        val sessionMarker = "# QELTRAVYX_BASH_SESSION_1_START"
+        if (!profile.readText(Charsets.UTF_8).contains(sessionMarker)) {
+            val extension = assets.open("qeltravyx/bash-session-extension.sh")
+                .bufferedReader(Charsets.UTF_8).use { it.readText() }
+            check(extension.contains(sessionMarker)) { "Extensão de sessão Bash inválida" }
+            profile.appendText("\n" + extension + "\n", Charsets.UTF_8)
         }
     }
 

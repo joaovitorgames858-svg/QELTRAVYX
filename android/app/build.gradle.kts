@@ -11,6 +11,10 @@ android {
 
     packaging {
         jniLibs {
+            // ARM64 Termux/PRoot cannot execute the NDK's x86-64 llvm-strip.
+            // Retain symbols through the supported AGP packaging option;
+            // keep the NDK/ABI unchanged and verify ELF bytes in the APK.
+            keepDebugSymbols.add("**/*.so")
             keepDebugSymbols.add("**/libqeltravyx_pty.so")
             useLegacyPackaging = true
             keepDebugSymbols.add("**/libqeltravyx_toolbox.so")

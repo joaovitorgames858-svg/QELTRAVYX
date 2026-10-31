@@ -12,7 +12,11 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - build/**
+    # Recoverable source snapshots are not standalone Dart packages.
+    - backups/**
     - android/**
+    # Independent example package; validated separately by validate_alpha108.sh.
+    - examples/core108/flutter/**
 
 linter:
   # The lint rules applied to this project can be customized in the

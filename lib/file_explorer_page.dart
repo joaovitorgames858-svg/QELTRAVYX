@@ -116,6 +116,19 @@ class _QeltravyxFileExplorerPageState extends State<QeltravyxFileExplorerPage> {
     await _refresh();
   }
 
+  Future<void> _runSelected() async {
+    if (_busy || _project == null || _file == null) return;
+    try {
+      final path = await _channel.invokeMethod<String>('filePath', {
+        'project': _project,
+        'file': _file,
+      });
+      if (mounted && path != null) Navigator.of(context).pop(path);
+    } catch (error) {
+      _notify('Falha ao preparar execução: $error');
+    }
+  }
+
   void _back() {
     if (_file != null) {
       setState(() {
@@ -151,6 +164,15 @@ class _QeltravyxFileExplorerPageState extends State<QeltravyxFileExplorerPage> {
           ),
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: <Widget>[
+            if (_file?.endsWith('.py') == true ||
+                _file?.endsWith('.js') == true)
+              IconButton(
+                tooltip: _file!.endsWith('.py')
+                    ? 'Executar com Python'
+                    : 'Executar com Node.js',
+                onPressed: _busy ? null : _runSelected,
+                icon: const Icon(Icons.play_arrow),
+              ),
             IconButton(
               tooltip: 'Gerenciar arquivos e pastas',
               icon: const Icon(Icons.create_new_folder_outlined),

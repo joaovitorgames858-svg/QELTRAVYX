@@ -2,7 +2,7 @@
 # Created once in $HOME/.qeltravyx/bashrc; you may edit this file.
 case $- in *i*) ;; *) return ;; esac
 
-PS1='qeltravyx:\w\$ '
+PS1='\[\e[1;32m\]\w\[\e[0m\] $ '
 HISTFILE="$HOME/.qeltravyx_bash_history"
 HISTSIZE=1000
 HISTFILESIZE=2000
