@@ -1,0 +1,113 @@
+name: Runtime total - Android Bionic Node candidate
+# Manual, isolated from UX V3. No push, signing, installation or release publishing.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: runtime-total-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager --install 'ndk;28.2.13676358'
+      - name: Compile Node and package matching complete npm CLI
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          bash ci/runtime/build_node.sh
+      - name: Source provenance and checksums; Android test still required
+        uses: actions/upload-artifact@v4
+        with:
+          name: qeltravyx-node-android-candidate
+          path: .build/runtime-bundle/
+          retention-days: 7
+          if-no-files-found: error
+  git:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager --install 'ndk;28.2.13676358'
+      - name: Compile local-only Git candidate
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          bash ci/runtime/build_git.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qeltravyx-git-android-candidate
+          path: .build/git-bundle/
+          retention-days: 7
+          if-no-files-found: error
+  apk-candidate:
+    needs: [node, git]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: qeltravyx-node-android-candidate
+          path: .build/node-bundle
+      - uses: actions/download-artifact@v4
+        with:
+          name: qeltravyx-git-android-candidate
+          path: .build/git-bundle
+      - name: Verify and stage candidate bundles (no stable artifact touched)
+        run: python3 ci/runtime/stage_bundle.py .build/node-bundle .build/git-bundle
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - name: Patch pip only in the disposable CI checkout
+        run: python3 ci/patch_pip_android_alias.py
+      - name: Remove debug signing and preserve version 43
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/build.gradle.kts')
+          old='signingConfig = signingConfigs.getByName("debug")'
+          s=p.read_text(); assert s.count(old)==1
+          p.write_text(s.replace(old,'// Candidate unsigned; sign locally after validation'))
+          assert 'version: 1.0.17+43' in Path('pubspec.yaml').read_text()
+          PY
+          FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
+          printf 'sdk.dir=%s\nflutter.sdk=%s\nflutter.versionName=1.0.17\nflutter.versionCode=43\n' "$ANDROID_SDK_ROOT" "$FLUTTER_SDK" > android/local.properties
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Build exactly one unsigned ARM64 candidate
+        working-directory: android
+        run: gradle :app:assembleRelease --no-daemon --max-workers=2 --console=plain -Ptarget-platform=android-arm64
+      - name: Collect candidate and checksum
+        run: |
+          mkdir -p artifacts
+          APK=$(find build/app/outputs -type f -name '*unsigned*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" artifacts/QELTRAVYX-runtime-candidate-unsigned.apk
+          sha256sum artifacts/*.apk > artifacts/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QELTRAVYX-RUNTIME-CANDIDATE-UNSIGNED-NOT-DEVICE-VALIDATED
+          path: artifacts/
+          retention-days: 7
+          if-no-files-found: error

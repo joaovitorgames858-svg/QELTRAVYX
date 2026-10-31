@@ -57,6 +57,7 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
                 put("LANG", "C.UTF-8")
                 put("ANDROID_ROOT", "/system")
                 put("ANDROID_DATA", "/data")
+                put("GIT_ALLOW_PROTOCOL", "")
                 put("GIT_CONFIG_NOSYSTEM", "1")
                 put("GIT_CONFIG_GLOBAL", "/dev/null")
                 put("GIT_TERMINAL_PROMPT", "0")
@@ -97,6 +98,7 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
     }
 
     private fun inspect(): List<Map<String, Any>> {
+        val npmError = RuntimeNpm.prepare(context)
         val results = binaries.map { (name, library) ->
             val binary = File(libs, library)
             if (!binary.isFile) mapOf("name" to name, "status" to "Não instalado",
@@ -122,7 +124,7 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
         } else results.add(mapOf("name" to "pip", "status" to "Não disponível", "reason" to "Python indisponível."))
         val node = results.first { it["name"] == "node" }
         results.add(if (!npmCli.isFile) mapOf("name" to "npm", "status" to "Não instalado",
-            "reason" to "CLI npm não empacotada; Node e npm são componentes distintos.")
+            "reason" to (npmError ?: "CLI npm não empacotada; Node e npm são componentes distintos."))
         else if (node["status"] != "Instalado") mapOf("name" to "npm", "status" to "Não disponível",
             "reason" to "CLI presente, mas Node não executou com sucesso.")
         else {
@@ -154,21 +156,24 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
                     }
                     probe(listOf(python, "-I", "-B", "pip_smoke.py"), directory, timeout = 90)
                 }
-                "npm" -> probe(listOf(node, npmCli.absolutePath, "--version"), directory)
+                "npm" -> {
+                    for (asset in listOf("npm_smoke.js", "qel-js-demo-1.0.0.tgz")) {
+                        context.assets.open("qeltravyx/$asset").use { input ->
+                            File(directory, asset).outputStream().use { input.copyTo(it) }
+                        }
+                    }
+                    probe(listOf(node, "npm_smoke.js", npmCli.absolutePath), directory, timeout = 60)
+                }
                 "node" -> {
-                    File(directory, "relative.txt").writeText("relative-ok")
-                    File(directory, "hello.js").writeText(
-                        "const fs = require('fs'); const assert = require('assert'); " +
-                        "assert.strictEqual(fs.readFileSync('relative.txt', 'utf8'), 'relative-ok'); " +
-                        "assert.strictEqual(process.argv[2], 'argumento ç'); " +
-                        "assert.strictEqual(fs.readFileSync(0, 'utf8'), 'entrada-ok\\n'); " +
-                        "console.log('QELTRAVYX NODE OK');")
-                    probe(listOf(node, "hello.js", "argumento ç"), directory, "entrada-ok\n", 10)
+                    context.assets.open("qeltravyx/node_smoke.js").use { input ->
+                        File(directory, "node_smoke.js").outputStream().use { input.copyTo(it) }
+                    }
+                    probe(listOf(node, "node_smoke.js", "argumento ç"), directory, "entrada-ok\n", 10)
                 }
                 else -> {
                     val git = File(libs, binaries.getValue("git")).absolutePath
                     File(directory, "hello.txt").writeText("local-only\n")
-                    val commands = listOf(listOf("init"), listOf("add", "hello.txt"),
+                    val commands = listOf(listOf("-c", "init.templateDir=", "init"), listOf("add", "hello.txt"),
                         listOf("-c", "user.name=QELTRAVYX smoke", "-c", "user.email=smoke@localhost",
                             "-c", "commit.gpgsign=false", "commit", "-m", "Smoke local"),
                         listOf("status", "--porcelain"), listOf("log", "-1", "--format=%s"))
@@ -180,6 +185,12 @@ internal class RuntimeBridge(private val context: Context, private val ui: Handl
                         duration += last["durationMs"] as Long
                         output.append("git ${args.joinToString(" ")}\n${last["output"]}\n")
                         if (last["exitCode"] != 0) break
+                        if ((args.first() == "status" && last["output"].toString().isNotBlank()) ||
+                            (args.first() == "log" && last["output"].toString().trim() != "Smoke local")) {
+                            last = last + mapOf("exitCode" to 1)
+                            output.append("Estado/conteúdo Git inesperado\n")
+                            break
+                        }
                     }
                     last + mapOf("output" to safeOutput(output.toString()), "durationMs" to duration)
                 }

@@ -112,7 +112,7 @@ class _RuntimeStatusPanelState extends State<RuntimeStatusPanel> {
         ],
       ),
       const Text(
-        'pip: instalação offline e import em outro processo (pode levar até 90 s); npm: versão; Node: script e arquivos; Git: repositório e commit locais. Nenhum pacote é baixado.',
+        'pip: instalação offline e import em outro processo (pode levar até 90 s); npm: instalação/import offline (até 60 s), scripts bloqueados; Node: script e arquivos; Git: repositório e commit locais. Nenhum pacote é baixado.',
       ),
       if (_result != null)
         SelectableText(

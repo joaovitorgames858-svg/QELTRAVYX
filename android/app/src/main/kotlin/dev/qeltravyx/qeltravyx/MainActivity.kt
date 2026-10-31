@@ -826,6 +826,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun prepareWorkspace() {
+        // Optional npm failure must not disable the existing terminal/Python.
+        RuntimeNpm.prepare(this)
         val root = File(filesDir, "workspace")
         listOf("projects", "scripts", "tmp", "logs").forEach { name ->
             check(File(root, name).isDirectory || File(root, name).mkdirs()) {
@@ -886,7 +888,7 @@ class MainActivity : FlutterActivity() {
             bashrc.appendText("\n" + py061Extension + "\n", Charsets.UTF_8)
         }
         // Append only: preserve Python functions, user profiles and existing packages.
-        val runtimeMarker = "# QELTRAVYX_RUNTIME_BASE_1_START"
+        val runtimeMarker = "# QELTRAVYX_RUNTIME_TOTAL_2_START"
         val runtimeExtension = assets.open("qeltravyx/runtime-extension.sh")
             .bufferedReader(Charsets.UTF_8).use { it.readText() }
         check(runtimeExtension.contains(runtimeMarker)) { "Extensão de runtime inválida" }
@@ -924,40 +926,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun prepareQpkg() {
-        // QELTRAVYX_QPKG_ALPHA08: install app-authored management files on first launch.
-        val dir = File(filesDir, ".qeltravyx")
-        check(dir.isDirectory || dir.mkdirs()) { "qpkg: pasta de configuração indisponível" }
-        val ready = File(dir, ".qpkg_08_ready")
-        if (ready.exists() && File(dir,"qpkg.py").isFile &&
-            File(dir,"vendor/packaging/__init__.py").isFile && File(dir,"vendor/cacert.pem").isFile) return
-
-        // Copy bundled qpkg script. Do not touch installed packages under workspace/.
-        assets.open("qeltravyx/qpkg.py").use { input ->
-            val tmp = File(dir, "qpkg.py.tmp")
-            tmp.outputStream().use { output -> input.copyTo(output) }
-            check(tmp.renameTo(File(dir,"qpkg.py"))) { "qpkg: falha ao ativar script" }
-        }
-        assets.open("qeltravyx/qpkg-vendor.zip").use { input ->
-            java.util.zip.ZipInputStream(input).use { zip ->
-                val safeRoot = dir.canonicalPath + File.separator
-                var entry = zip.nextEntry
-                var count = 0
-                while (entry != null) {
-                    check(++count <= 150) { "qpkg: excesso de arquivos de suporte" }
-                    val out = File(dir, entry.name).canonicalFile
-                    check(out.path.startsWith(safeRoot)) { "qpkg: caminho inválido" }
-                    if (entry.isDirectory) {
-                        check(out.isDirectory || out.mkdirs())
-                    } else {
-                        check(out.parentFile?.isDirectory == true || out.parentFile?.mkdirs() == true)
-                        out.outputStream().use { output -> zip.copyTo(output) }
-                    }
-                    zip.closeEntry()
-                    entry = zip.nextEntry
-                }
-            }
-        }
-        ready.writeText("0.8.0\n", Charsets.UTF_8)
+        RuntimeQpkg.prepare(this)
     }
 
     private fun launchPty(id: Int) {

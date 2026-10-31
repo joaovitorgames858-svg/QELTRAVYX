@@ -1,0 +1,11 @@
+'use strict';
+const fs = require('fs');
+const assert = require('assert');
+assert.strictEqual(process.argv[2], 'argumento ç');
+assert.strictEqual(fs.readFileSync(0, 'utf8'), 'entrada-ok\n');
+fs.writeFileSync('node-write.txt', 'escrita ç\n', {flag: 'wx'});
+assert.strictEqual(fs.readFileSync('node-write.txt', 'utf8'), 'escrita ç\n');
+fs.renameSync('node-write.txt', 'node-renamed.txt');
+assert.strictEqual(fs.readFileSync('node-renamed.txt', 'utf8'), 'escrita ç\n');
+fs.unlinkSync('node-renamed.txt');
+console.log('QELTRAVYX NODE OK: fs, argv, stdin, write/read/rename/delete, JS');

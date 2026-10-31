@@ -8,7 +8,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Visual companion to the already-tested qpkg 0.8 CLI.
+/// Visual companion to the QPKG CLI; commands execute in the visible PTY.
 /// It NEVER installs or removes packages directly: the confirmed command is
 /// returned to the active PTY so users can watch qpkg validation and errors.
 class QeltravyxPackagesPage extends StatefulWidget {
@@ -83,6 +83,7 @@ class _QeltravyxPackagesPageState extends State<QeltravyxPackagesPage> {
       final request = await client.getUrl(
         Uri.https('pypi.org', '/pypi/$name/json'),
       );
+      request.followRedirects = false;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final response = await request.close().timeout(
         const Duration(seconds: 20),
@@ -120,7 +121,7 @@ class _QeltravyxPackagesPageState extends State<QeltravyxPackagesPage> {
 
   void _install(String name) {
     if (!_namePattern.hasMatch(name)) return;
-    Navigator.of(context).pop('qpkg install $name');
+    Navigator.of(context).pop('qpkg install --allow-network $name');
   }
 
   Future<void> _remove(String name) async {
@@ -166,7 +167,7 @@ class _QeltravyxPackagesPageState extends State<QeltravyxPackagesPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             Text(
-              'QELTRAVYX • QPKG 0.9',
+              'QELTRAVYX • QPKG 0.10',
               style: TextStyle(fontSize: 11, color: Color(0xFF97A7BA)),
             ),
           ],
@@ -185,7 +186,7 @@ class _QeltravyxPackagesPageState extends State<QeltravyxPackagesPage> {
           children: [
             const RuntimeStatusPanel(),
             const Text(
-              'Buscar pacote Python pelo nome',
+              'Consultar PyPI por HTTPS (usa internet)',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
@@ -265,7 +266,7 @@ class _QeltravyxPackagesPageState extends State<QeltravyxPackagesPage> {
                             ? () => _install(queriedName)
                             : null,
                         icon: const Icon(Icons.download),
-                        label: const Text('Instalar no terminal'),
+                        label: const Text('Autorizar download e instalar'),
                       ),
                     ],
                   ),
