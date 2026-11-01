@@ -176,7 +176,7 @@ jobs:
           s=p.read_text()
           old='signingConfig = signingConfigs.getByName("debug")'
           assert s.count(old)==1, 'Unexpected signing configuration'
-          p.write_text(s.replace(old,'// Git-only candidate is unsigned; sign on user's device'))
+          p.write_text(s.replace(old, '// Git-only candidate unsigned; sign locally on Android'))
           assert 'version: 1.0.17+43' in Path('pubspec.yaml').read_text()
           PY
           FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
