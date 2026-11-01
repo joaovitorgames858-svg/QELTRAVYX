@@ -40,8 +40,11 @@ PY_PATCH
   grep -Fq "#if defined(V8_TARGET_OS_ANDROID) || V8_OS_ANDROID" deps/v8/src/trap-handler/trap-handler.h
   # Explicit configure invocation: upstream android_configure.py discards exit status.
   ./configure --dest-cpu=arm64 --dest-os=android --openssl-no-asm --cross-compiling --with-intl=small-icu
-  # Use four compiler jobs on the 4-vCPU Linux runner; no host/glibc binary is shipped.
-  make -j4
+  # Build the executable target only. The default GYP "all" also compiles
+  # cctest, whose aligned_alloc() requires an Android API newer than our minSdk 24.
+  # Host mksnapshot and every library required by the node target remain dependencies.
+  # Use the generated Android GYP Makefile rather than the upstream default "all".
+  make -j4 -C out BUILDTYPE=Release V=0 node
 )
 mkdir -p "$q_output/jniLibs/arm64-v8a"
 cp ci/runtime/node-android-traps.patch "$q_output/assets/qeltravyx/npm/NODE-ANDROID-PATCH.diff"
