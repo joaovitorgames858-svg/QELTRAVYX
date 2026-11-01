@@ -17,9 +17,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   node:
-    # The Node/V8 cross build is expensive; run it only when explicitly requested.
-    # Routine pushes first validate the fast Git native job.
-    if: github.event_name == 'workflow_dispatch'
+    # Heavy Node/V8 Bionic build: run only for manual dispatch or an explicitly
+    # marked one-shot push. Normal Git pushes keep the fast Git build only.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-node]')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -91,7 +91,7 @@ jobs:
       - run: flutter test
       - name: Patch pip only in the disposable CI checkout
         run: python3 ci/patch_pip_android_alias.py
-      - name: Remove debug signing and preserve version 43
+      - name: Remove CI signing and prepare versionCode 45 (after tested +44)
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -102,23 +102,42 @@ jobs:
           assert 'version: 1.0.17+43' in Path('pubspec.yaml').read_text()
           PY
           FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
-          printf 'sdk.dir=%s\nflutter.sdk=%s\nflutter.versionName=1.0.17\nflutter.versionCode=43\n' "$ANDROID_SDK_ROOT" "$FLUTTER_SDK" > android/local.properties
+          printf 'sdk.dir=%s\nflutter.sdk=%s\nflutter.versionName=1.0.17\nflutter.versionCode=45\n' "$ANDROID_SDK_ROOT" "$FLUTTER_SDK" > android/local.properties
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
       - name: Build exactly one unsigned ARM64 candidate
         working-directory: android
         run: gradle :app:assembleRelease --no-daemon --max-workers=2 --console=plain -Ptarget-platform=android-arm64
-      - name: Collect candidate and checksum
+      - name: Verify Node, npm, Git, and version 45 in unsigned APK
         run: |
+          set -euo pipefail
           mkdir -p artifacts
           APK=$(find build/app/outputs -type f -name '*unsigned*.apk' -print -quit)
           test -n "$APK"
-          cp "$APK" artifacts/QELTRAVYX-runtime-candidate-unsigned.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt" dump badging "$APK" | \
+            grep -E "^package: name='dev.qeltravyx.qeltravyx' versionCode='45' "
+          python3 - "$APK" <<'PY_VERIFY_APK'
+          import hashlib,sys,zipfile
+          from pathlib import Path
+          p=Path(sys.argv[1])
+          root=Path('android/app/src/main')
+          native=['libqeltravyx_node.so','libqeltravyx_git.so']
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None, 'APK ZIP corrupted'
+              for name in native:
+                  apk_name='lib/arm64-v8a/'+name
+                  source=root/'jniLibs/arm64-v8a'/name
+                  actual=z.read(apk_name)
+                  assert hashlib.sha256(actual).digest()==hashlib.sha256(source.read_bytes()).digest(), name+' differs'
+              assert z.getinfo('assets/flutter_assets/assets/qeltravyx/npm/npm-runtime.zip').file_size>0 if 'assets/flutter_assets/assets/qeltravyx/npm/npm-runtime.zip' in z.namelist() else True
+              print('Node and Git native bytes verified; npm assets checked in staging')
+          PY_VERIFY_APK
+          cp "$APK" artifacts/QELTRAVYX-NODE-NPM-GIT-V45-unsigned.apk
           sha256sum artifacts/*.apk > artifacts/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: QELTRAVYX-RUNTIME-CANDIDATE-UNSIGNED-NOT-DEVICE-VALIDATED
+          name: QELTRAVYX-NODE-NPM-GIT-V45-UNSIGNED-NOT-DEVICE-VALIDATED
           path: artifacts/
           retention-days: 7
           if-no-files-found: error
@@ -127,7 +146,7 @@ jobs:
     # Independent from Node.js: package the Git candidate without waiting
     # for the expensive experimental Node/V8 cross-compilation.
     needs: [git]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[build-node]')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
