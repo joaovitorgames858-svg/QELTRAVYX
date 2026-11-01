@@ -76,8 +76,13 @@ p.write_text(s)
 print("Android Bionic: cancelamento pthread indisponível protegido; máscaras de sinal mantidas")
 PY_ANDROID_PTHREAD
 q_toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-# Build only the C executable and its in-process builtins. No curl, Perl, Python,
-# shell helpers or external TLS libraries; remote operations deliberately unavailable.
+# Cross-compile the C Git executable and its in-process builtins.
+# Android Bionic provides pthread APIs in libc, not libpthread; keep pthreads
+# enabled while omitting the separate -lpthread link flag.
+# Git 2.56's optional Rust code would default to Linux x86_64 on this runner;
+# omit it until an Android-targeted Rust toolchain is configured.
+# No curl, Perl, Python, shell helpers or external TLS libraries: remote operations
+# deliberately unavailable.
 make -C "$q_work/git-$q_version" -j2 git \
   CC="$q_toolchain/bin/aarch64-linux-android24-clang" \
   AR="$q_toolchain/bin/llvm-ar" \
@@ -85,6 +90,7 @@ make -C "$q_work/git-$q_version" -j2 git \
   LDFLAGS='-pie -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384' \
   NO_CURL=YesPlease NO_EXPAT=YesPlease NO_OPENSSL=YesPlease \
   NO_GETTEXT=YesPlease NO_ICONV=YesPlease NO_PERL=YesPlease NO_PYTHON=YesPlease \
+  NO_RUST=YesPlease PTHREAD_LIBS= \
   NO_TCLTK=YesPlease NO_INSTALL_HARDLINKS=YesPlease \
   CSPRNG_METHOD= HAVE_SYNC_FILE_RANGE= FSMONITOR_DAEMON_BACKEND= FSMONITOR_OS_SETTINGS= \
   ac_cv_fread_reads_directories=YesPlease ac_cv_snprintf_returns_bogus=No \
