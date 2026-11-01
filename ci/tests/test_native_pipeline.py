@@ -20,6 +20,17 @@ elf = module('verify_elf')
 
 
 class NativeTests(unittest.TestCase):
+    def test_cross_host_android_v8_trap_patch_is_pinned(self):
+        # Host mksnapshot inherits V8_TARGET_OS_ANDROID even on Linux x86_64.
+        import hashlib
+        import json
+        patch = (ROOT/'ci/runtime/node-android-traps.patch').read_bytes()
+        manifest = json.loads((ROOT/'ci/runtime/sources.json').read_text())
+        self.assertEqual(hashlib.sha256(patch).hexdigest(),
+                         manifest['node']['patches']['node-android-traps.patch'])
+        self.assertIn(b'+#if defined(V8_TARGET_OS_ANDROID) || V8_OS_ANDROID', patch)
+        self.assertIn(b'+#define V8_TRAP_HANDLER_SUPPORTED false', patch)
+
     def test_source_paths_and_symlinks_rejected(self):
         for name, link in [('node-v22.23.4/../escape', False), ('node-v22.23.4/link', True)]:
             with tempfile.TemporaryDirectory() as tmp:

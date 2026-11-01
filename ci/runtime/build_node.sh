@@ -35,6 +35,9 @@ for name,sha in spec['patches'].items():
     assert hashlib.sha256((root/name).read_bytes()).hexdigest()==sha
 PY_PATCH
   patch --batch --forward --fuzz=0 -p1 < "$OLDPWD/ci/runtime/node-android-traps.patch"
+  # mksnapshot runs on x86_64 but includes V8_TARGET_OS_ANDROID for ARM64 output.
+  # Disable Android-specific trap-handler optimization consistently in host/target.
+  grep -Fq "#if defined(V8_TARGET_OS_ANDROID) || V8_OS_ANDROID" deps/v8/src/trap-handler/trap-handler.h
   # Explicit configure invocation: upstream android_configure.py discards exit status.
   ./configure --dest-cpu=arm64 --dest-os=android --openssl-no-asm --cross-compiling --with-intl=small-icu
   # Use four compiler jobs on the 4-vCPU Linux runner; no host/glibc binary is shipped.

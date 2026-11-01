@@ -12,7 +12,7 @@
     "npm": "deps/npm; version read and recorded from the hash-pinned source",
     "npm_version": "10.9.9",
     "patches": {
-      "node-android-traps.patch": "a59827c1d6e21607e47dcf2aeadee5562a378f24d14e55ce9d3aa525a12f8872"
+      "node-android-traps.patch": "54d7a8a6f9e6b8c1437b97288bdd506515457b6162258ce64316acc15eb898d6"
     }
   },
   "git": {
