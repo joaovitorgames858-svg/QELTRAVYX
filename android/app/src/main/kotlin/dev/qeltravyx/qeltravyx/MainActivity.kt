@@ -909,6 +909,17 @@ class MainActivity : FlutterActivity() {
         if (!bashrc.readText(Charsets.UTF_8).contains(qpkgMarker)) {
             bashrc.appendText("\n" + qpkgExtension + "\n", Charsets.UTF_8)
         }
+        // The original runtime extension is append-only; deliver this Git fix
+        // to existing installations without replacing user-modified profiles.
+        val gitFixMarker = "# QELTRAVYX_GIT_LOCAL_FIX_1_START"
+        val gitFix = assets.open("qeltravyx/git-local-fix.sh")
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        check(gitFix.contains(gitFixMarker)) { "Extensão Git inválida" }
+        for (shellProfile in listOf(profile, bashrc)) {
+            if (!shellProfile.readText(Charsets.UTF_8).contains(gitFixMarker)) {
+                shellProfile.appendText("\n" + gitFix + "\n", Charsets.UTF_8)
+            }
+        }
         // App-owned launcher; user profiles, history and workspace stay intact.
         val sessionRc = File(profileDir, "session.bashrc")
         val sessionConfig = assets.open("qeltravyx/session.bashrc")
