@@ -38,6 +38,33 @@ PY_PATCH
   # mksnapshot runs on x86_64 but includes V8_TARGET_OS_ANDROID for ARM64 output.
   # Disable Android-specific trap-handler optimization consistently in host/target.
   grep -Fq "#if defined(V8_TARGET_OS_ANDROID) || V8_OS_ANDROID" deps/v8/src/trap-handler/trap-handler.h
+  # Android API 24 has Bionic getauxval(AT_HWCAP), but the zlib Android
+  # path references android_getCpuFeatures from an unlinked legacy NDK library.
+  # Use the libc entry point for ARM64 (CRC32/PMULL), without touching x86 host.
+  python3 - <<'PY_CPU_FEATURES'
+from pathlib import Path
+p = Path("deps/zlib/cpu_features.c")
+s = p.read_text()
+original_include = "#if defined(ARMV8_OS_ANDROID)\n#include <cpu-features.h>\n#elif defined(ARMV8_OS_LINUX)"
+new_include = ("#if defined(ARMV8_OS_ANDROID) && defined(__aarch64__)\n"
+               "#include <asm/hwcap.h>\n#include <sys/auxv.h>\n"
+               "#elif defined(ARMV8_OS_ANDROID)\n#include <cpu-features.h>\n"
+               "#elif defined(ARMV8_OS_LINUX)")
+original_check = ("#if defined(ARMV8_OS_ANDROID) && defined(__aarch64__)\n"
+                  "    uint64_t features = android_getCpuFeatures();\n"
+                  "    arm_cpu_enable_crc32 = !!(features & ANDROID_CPU_ARM64_FEATURE_CRC32);\n"
+                  "    arm_cpu_enable_pmull = !!(features & ANDROID_CPU_ARM64_FEATURE_PMULL);")
+new_check = ("#if defined(ARMV8_OS_ANDROID) && defined(__aarch64__)\n"
+             "    unsigned long features = getauxval(AT_HWCAP);\n"
+             "    arm_cpu_enable_crc32 = !!(features & HWCAP_CRC32);\n"
+             "    arm_cpu_enable_pmull = !!(features & HWCAP_PMULL);")
+assert s.count(original_include) == 1, "zlib Android include drift"
+assert s.count(original_check) == 1, "zlib Android ARM64 check drift"
+s = s.replace(original_include, new_include).replace(original_check, new_check)
+p.write_text(s)
+assert "unsigned long features = getauxval(AT_HWCAP);" in s
+print("zlib Android ARM64: getauxval(AT_HWCAP), CRC32 and PMULL enabled")
+PY_CPU_FEATURES
   # Explicit configure invocation: upstream android_configure.py discards exit status.
   ./configure --dest-cpu=arm64 --dest-os=android --openssl-no-asm --cross-compiling --with-intl=small-icu
   # Build the executable target only. The default GYP "all" also compiles
